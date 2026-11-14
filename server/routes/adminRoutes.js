@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import { db } from '../db.js';
 import { requireAdmin } from '../auth.js';
 
@@ -737,5 +738,80 @@ adminRouter.delete('/support/socials/:id', async (req, res) => {
   } catch (err) {
     console.error('Error deleting social link:', err);
     res.status(500).json({ error: 'server_error', message: 'Failed to delete social link' });
+  }
+});
+
+// Channels & Groups Management Endpoints
+// GET /api/admin/channels - List channels for management
+adminRouter.get('/channels', async (req, res) => {
+  try {
+    const channels = await db.queryAll('SELECT * FROM channels ORDER BY is_pinned DESC, created_at DESC');
+    res.json({ channels });
+  } catch (err) {
+    console.error('Error fetching admin channels:', err);
+    res.status(500).json({ error: 'server_error', message: 'Failed to fetch channels' });
+  }
+});
+
+// POST /api/admin/channels - Create channel or group
+adminRouter.post('/channels', async (req, res) => {
+  try {
+    const { name, description, type, icon, is_pinned } = req.body;
+    const trimmedName = (name || '').toString().trim();
+    if (!trimmedName) {
+      return res.status(400).json({ error: 'invalid_name', message: 'Kanal yoki guruh nomi kiritilishi shart' });
+    }
+
+    const channelType = type === 'channel' ? 'channel' : 'group';
+    const channelIcon = icon || (channelType === 'channel' ? 'Megaphone' : 'Users');
+    const isPinned = Boolean(is_pinned);
+
+    const slugBase = trimmedName
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-')
+      .replace(/-+/g, '-')
+      .slice(0, 30);
+    const channelId = `ch_${slugBase || 'group'}_${crypto.randomBytes(3).toString('hex')}`;
+    const now = new Date().toISOString();
+
+    await db.query(`
+      INSERT INTO channels (id, name, description, type, icon, is_pinned, created_by, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `, [
+      channelId,
+      trimmedName,
+      (description || '').toString().trim(),
+      channelType,
+      channelIcon,
+      isPinned,
+      req.user.id,
+      now,
+      now
+    ]);
+
+    const createdChannel = await db.queryOne('SELECT * FROM channels WHERE id = $1', [channelId]);
+    res.status(201).json({ success: true, channel: createdChannel });
+  } catch (err) {
+    console.error('Error creating channel in admin:', err);
+    res.status(500).json({ error: 'server_error', message: 'Failed to create channel' });
+  }
+});
+
+// DELETE /api/admin/channels/:id - Delete channel
+adminRouter.delete('/channels/:id', async (req, res) => {
+  try {
+    const channelId = req.params.id;
+    if (channelId === 'dispetcherlar-va-yuk-egalari' || channelId === 'haydovchilar-guruhi') {
+      return res.status(400).json({
+        error: 'protected_channel',
+        message: 'Rasmiy asosiy guruhlarni o‘chirib bo‘lmaydi'
+      });
+    }
+
+    await db.query('DELETE FROM channels WHERE id = $1', [channelId]);
+    res.json({ success: true, message: 'Channel deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting channel in admin:', err);
+    res.status(500).json({ error: 'server_error', message: 'Failed to delete channel' });
   }
 });

@@ -287,6 +287,26 @@ export async function initDatabase() {
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS channels (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        type TEXT NOT NULL DEFAULT 'group',
+        icon TEXT DEFAULT 'Users',
+        is_pinned BOOLEAN DEFAULT FALSE,
+        created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS channel_messages (
+        id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        content TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
       CREATE INDEX IF NOT EXISTS idx_listings_status_created ON listings(status, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_listings_user ON listings(user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_transports_status_created ON transports(status, created_at DESC);
@@ -303,6 +323,8 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_transports_search ON transports(origin_country, destination_country, body_type, status, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_messages_conv_created ON messages(conversation_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
+      CREATE INDEX IF NOT EXISTS idx_channels_pinned_created ON channels(is_pinned DESC, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_channel_messages_channel ON channel_messages(channel_id, created_at ASC);
 
       ALTER TABLE users ADD COLUMN IF NOT EXISTS free_contacts_remaining INTEGER NOT NULL DEFAULT 117;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_id INTEGER;
@@ -477,6 +499,26 @@ export async function initDatabase() {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS channels (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        type TEXT NOT NULL DEFAULT 'group',
+        icon TEXT DEFAULT 'Users',
+        is_pinned INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS channel_messages (
+        id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_listings_status_created ON listings(status, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_listings_user ON listings(user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_transports_status_created ON transports(status, created_at DESC);
@@ -493,6 +535,8 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_transports_search ON transports(origin_country, destination_country, body_type, status, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_messages_conv_created ON messages(conversation_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
+      CREATE INDEX IF NOT EXISTS idx_channels_pinned_created ON channels(is_pinned DESC, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_channel_messages_channel ON channel_messages(channel_id, created_at ASC);
     `);
 
     // Run safe migrations for existing SQLite databases
@@ -814,6 +858,62 @@ export async function seedDefaultAdmin() {
     }
   } catch (err) {
     console.error('Error seeding default admin:', err);
+  }
+}
+
+export async function seedDefaultChannels() {
+  try {
+    const now = new Date().toISOString();
+    const defaultChannels = [
+      {
+        id: 'dispetcherlar-va-yuk-egalari',
+        name: 'Dispetcherlar va Yuk egalari',
+        description: "Yuk e'lonlari va dispetcherlar umumiy muhokama guruhi",
+        type: 'group',
+        icon: 'Package',
+        is_pinned: isPg ? true : 1,
+      },
+      {
+        id: 'haydovchilar-guruhi',
+        name: 'Haydovchilar guruhi',
+        description: "Bo'sh mashinalar va haydovchilar rasmiy guruhi",
+        type: 'group',
+        icon: 'Truck',
+        is_pinned: isPg ? true : 1,
+      }
+    ];
+
+    for (const ch of defaultChannels) {
+      const existing = await db.queryOne('SELECT id FROM channels WHERE id = $1', [ch.id]);
+      if (!existing) {
+        await db.query(
+          `INSERT INTO channels (id, name, description, type, icon, is_pinned, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [ch.id, ch.name, ch.description, ch.type, ch.icon, ch.is_pinned, now, now]
+        );
+        console.log(`Seeded official default channel: ${ch.name}`);
+      }
+    }
+
+    // Seed initial welcome messages if empty
+    const adminUser = await db.queryOne("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
+    if (adminUser) {
+      for (const ch of defaultChannels) {
+        const msgCount = await db.queryOne('SELECT COUNT(*) as count FROM channel_messages WHERE channel_id = $1', [ch.id]);
+        if (Number(msgCount?.count || 0) === 0) {
+          const welcomeText = ch.id === 'dispetcherlar-va-yuk-egalari'
+            ? "Humo Logistics rasmiy guruhiga xush kelibsiz! Bu yerda yuk egalari va dispetcherlar to'g'ridan-to'g'ri bog'lanib, yangi yuklar va marshrutlar haqida tezkor ma'lumot almashishlari mumkin."
+            : "Barcha tashuvchi va haydovchilarimiz uchun rasmiy guruh. Yo'nalishlar, bo'sh mashinalar va tajriba almashish maydoni. Qoidalar: o'zaro hurmat va faqat ishonchli ma'lumotlar.";
+          const msgId = crypto.randomUUID();
+          await db.query(
+            'INSERT INTO channel_messages (id, channel_id, user_id, content, created_at) VALUES ($1, $2, $3, $4, $5)',
+            [msgId, ch.id, adminUser.id, welcomeText, now]
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error seeding default channels:', err);
   }
 }
 

@@ -14,7 +14,8 @@ import { adminRouter } from './routes/adminRoutes.js';
 import { subscriptionRouter } from './routes/subscriptionRoutes.js';
 import { supportRouter } from './routes/supportRoutes.js';
 import { aiRouter } from './routes/aiRoutes.js';
-import { authMiddleware } from './auth.js';
+import { channelRouter } from './routes/channelRoutes.js';
+import { authMiddleware, requireAuth } from './auth.js';
 import { 
   db, 
   isPg, 
@@ -23,6 +24,7 @@ import {
   seedDefaultPlans, 
   seedPaymentSettings, 
   seedSupportAndSocials, 
+  seedDefaultChannels,
   promoteToAdmin,
   closeDatabase 
 } from './db.js';
@@ -121,6 +123,7 @@ app.use('/api/admin', adminRouter);
 app.use('/api/subscriptions', subscriptionRouter);
 app.use('/api/support', supportRouter);
 app.use('/api/ai', aiRouter);
+app.use('/api/channels', channelRouter);
 
 // Aggregated My Listings endpoint
 app.get('/api/my-listings', requireAuth, async (req, res) => {
@@ -191,6 +194,7 @@ async function startServer() {
   await seedDefaultPlans();
   await seedPaymentSettings();
   await seedSupportAndSocials();
+  await seedDefaultChannels();
 
   // CLI support: node server/index.js --promote-admin <email>
   const promoteIdx = process.argv.indexOf('--promote-admin');

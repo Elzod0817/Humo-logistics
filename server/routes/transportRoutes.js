@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { db } from '../db.js';
 import { requireAuth, requireProfileComplete } from '../auth.js';
 import { BODY_TYPES, getCountry } from '../locations.js';
-import { processListingPhones, canViewPhone, maskPhone } from './subscriptionRoutes.js';
+import { processListingPhones, canViewPhone, maskPhone, handleUnlockContact } from './subscriptionRoutes.js';
 
 export const transportRouter = Router();
 
@@ -142,6 +142,13 @@ transportRouter.get('/:id', async (req, res) => {
     console.error('Error fetching transport:', err);
     res.status(500).json({ error: 'server_error', message: 'Failed to fetch transport' });
   }
+});
+
+// Unlock transport contact phone
+transportRouter.post('/:id/unlock', requireAuth, (req, res) => {
+  req.body.listing_type = 'transport';
+  req.body.listing_id = req.params.id;
+  return handleUnlockContact(req, res);
 });
 
 // Create new transport listing

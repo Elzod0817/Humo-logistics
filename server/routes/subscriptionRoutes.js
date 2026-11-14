@@ -160,7 +160,7 @@ subscriptionRouter.get('/my-status', requireAuth, async (req, res) => {
 });
 
 // 3. POST /api/subscriptions/unlock-contact - Unlock a contact phone number
-subscriptionRouter.post('/unlock-contact', requireAuth, async (req, res) => {
+export async function handleUnlockContact(req, res) {
   try {
     const { listing_type, listing_id } = req.body;
 
@@ -260,7 +260,9 @@ subscriptionRouter.post('/unlock-contact', requireAuth, async (req, res) => {
     console.error('Error unlocking contact:', err);
     res.status(500).json({ error: 'server_error', message: 'Failed to unlock contact' });
   }
-});
+}
+
+subscriptionRouter.post('/unlock-contact', requireAuth, handleUnlockContact);
 
 // 4. POST /api/subscriptions/request - Submit a subscription upgrade request
 subscriptionRouter.post('/request', requireAuth, async (req, res) => {

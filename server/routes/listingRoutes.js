@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { db } from '../db.js';
 import { requireAuth, requireProfileComplete } from '../auth.js';
 import { BODY_TYPES, isValidLocality, getCountry } from '../locations.js';
-import { processListingPhones, canViewPhone, maskPhone } from './subscriptionRoutes.js';
+import { processListingPhones, canViewPhone, maskPhone, handleUnlockContact } from './subscriptionRoutes.js';
 
 export const listingRouter = Router();
 
@@ -170,6 +170,13 @@ listingRouter.get('/:id', async (req, res) => {
     console.error('Error fetching listing details:', err);
     res.status(500).json({ error: 'server_error', message: 'Failed to fetch listing' });
   }
+});
+
+// Unlock cargo contact phone
+listingRouter.post('/:id/unlock', requireAuth, (req, res) => {
+  req.body.listing_type = 'cargo';
+  req.body.listing_id = req.params.id;
+  return handleUnlockContact(req, res);
 });
 
 function validateListingPayload(body) {

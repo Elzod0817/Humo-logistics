@@ -339,6 +339,27 @@ transportRouter.patch('/:id', requireAuth, async (req, res) => {
   }
 });
 
+// Toggle transport status
+transportRouter.post('/:id/status', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!['active', 'closed'].includes(status)) {
+      return res.status(400).json({ error: 'invalid_status', message: 'Status must be active or closed' });
+    }
+    const existing = await db.queryOne('SELECT id FROM transports WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    if (!existing) {
+      return res.status(404).json({ error: 'not_found', message: 'Transport not found or access denied' });
+    }
+    const now = new Date().toISOString();
+    await db.query('UPDATE transports SET status = $1, updated_at = $2 WHERE id = $3 AND user_id = $4', [status, now, id, req.user.id]);
+    const updated = await db.queryOne('SELECT * FROM transports WHERE id = $1', [id]);
+    res.json({ message: 'Status updated', transport: updated });
+  } catch (err) {
+    res.status(500).json({ error: 'server_error', message: 'Failed to update transport status' });
+  }
+});
+
 // Delete transport listing (Owner only)
 transportRouter.delete('/:id', requireAuth, async (req, res) => {
   try {

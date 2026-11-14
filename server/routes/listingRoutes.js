@@ -482,3 +482,18 @@ const updateListingStatus = async (req, res) => {
 
 listingRouter.post('/:id/status', requireAuth, updateListingStatus);
 listingRouter.patch('/:id/status', requireAuth, updateListingStatus);
+
+listingRouter.delete('/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await db.queryOne('SELECT id FROM listings WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    if (!existing) {
+      return res.status(404).json({ error: 'not_found', message: 'Listing not found or access denied' });
+    }
+    await db.query('DELETE FROM listings WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+    res.json({ success: true, message: 'Listing deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting listing:', err);
+    res.status(500).json({ error: 'server_error', message: 'Failed to delete listing' });
+  }
+});

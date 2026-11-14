@@ -116,10 +116,30 @@ app.use('/api/profile', profileRouter);
 app.use('/api/listings', listingRouter);
 app.use('/api/transports', transportRouter);
 app.use('/api/chat', chatRouter);
+app.use('/api/messages', chatRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/subscriptions', subscriptionRouter);
 app.use('/api/support', supportRouter);
 app.use('/api/ai', aiRouter);
+
+// Aggregated My Listings endpoint
+app.get('/api/my-listings', requireAuth, async (req, res) => {
+  try {
+    const cargos = await db.queryAll('SELECT * FROM listings WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
+    const transports = await db.queryAll('SELECT * FROM transports WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
+    res.json({
+      cargos,
+      transports,
+      all: [
+        ...cargos.map(c => ({ ...c, listing_type: 'cargo' })),
+        ...transports.map(t => ({ ...t, listing_type: 'transport' }))
+      ]
+    });
+  } catch (err) {
+    console.error('Error fetching my listings:', err);
+    res.status(500).json({ error: 'server_error', message: 'Failed to fetch my listings' });
+  }
+});
 
 // Fallback to index.html for SPA client-side routing
 app.use((req, res) => {

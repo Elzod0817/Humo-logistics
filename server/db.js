@@ -792,6 +792,26 @@ export async function seedDefaultAdmin() {
       await db.query('UPDATE users SET role = $1, is_verified = true WHERE email = $2', ['admin', adminEmail]);
       console.log(`Updated existing user ${adminEmail} to role = admin, is_verified = true`);
     }
+
+    // Seed Demo Carrier User (+998901234567 / Demo12345!)
+    const demoPhone = '+998901234567';
+    const demoEmail = 'demo@humologistics.uz';
+    const demoExisting = await db.queryOne('SELECT id FROM users WHERE phone = $1 OR email = $2', [demoPhone, demoEmail]);
+    if (!demoExisting) {
+      const demoId = crypto.randomUUID();
+      const demoHash = hashAdminPassword('Demo12345!');
+      const now = new Date().toISOString();
+      await db.query(`
+        INSERT INTO users (
+          id, email, password_hash, first_name, last_name, phone, role, 
+          profile_completed, is_verified, is_banned, free_contacts_remaining, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, 
+          1, true, false, 117, $8, $9
+        )
+      `, [demoId, demoEmail, demoHash, 'Sardor', 'Aliyev', demoPhone, 'carrier', now, now]);
+      console.log(`Default demo carrier account seeded for ${demoPhone} / ${demoEmail}`);
+    }
   } catch (err) {
     console.error('Error seeding default admin:', err);
   }

@@ -1,5 +1,9 @@
 // Humo Logistics AI Service
 // Stage 1: Smart Logistics Parser for Cargo and Transport Listings
+import dns from 'node:dns';
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 import { LOCATIONS_DATA, BODY_TYPES } from '../locations.js';
 
 export const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
@@ -896,55 +900,67 @@ function getFallbackDispatcherAnswer(question, lang = 'uz') {
   return `**Humo Logistics dispetcher tavsiyasi:**\n\n• Yukni xavfsiz yetkazish uchun uning aniq parametrlarini (vazni, hajmi, harorat rejimi) tekshiring.\n• Platformadagi "Yuklar" yoki "Mashinalar" bo‘limiga e'lon joylab, mos takliflarni tezkor toping.\n• Humo Logistics ichki chati orqali tasdiqlangan (verified) foydalanuvchilar bilan to‘g‘ridan-to‘g‘ri bog‘laning.`;
 }
 
-export async function askHumoDispatcher(question, lang = 'uz', userId = 'anon') {
+export async function askHumoDispatcher(question, lang = 'uz', userId = 'anon', context = []) {
   const cleanLang = ['uz', 'ru', 'en'].includes(lang) ? lang : 'uz';
   const cleanQuestion = (question || '').trim();
 
-  // 1. Strict Domain Pre-Filter
-  if (!isLogisticsQuestion(cleanQuestion)) {
-    return {
-      success: true,
-      answer: STRICT_REFUSAL_MESSAGES[cleanLang],
-      refused: true
-    };
-  }
-
-  // 2. Call Gemini API if available
+  // 1. Call Gemini API if available
   const apiKey = process.env.GEMINI_API_KEY;
   if (apiKey && apiKey.trim().length > 10) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
       const langNames = { uz: 'Uzbek', ru: 'Russian', en: 'English' };
 
-      const systemInstruction = `You are the Humo Logistics AI Dispatcher Assistant (Humo AI Dispetcher).
-You are an expert in Central Asian and international road freight, logistics corridors, freight documentation, vehicle specs, and Humo Logistics marketplace operations.
+      const systemInstruction = `You are the Humo Logistics AI Dispatcher Assistant (Humo AI Dispetcher) on the Humo Logistics freight platform.
+You are an expert dispatcher in Central Asian, CIS, and international road freight, logistics transit corridors, freight documentation, truck specifications, and Humo Logistics marketplace operations.
 
-STRICT DOMAIN BOUNDARY AND REFUSAL RULES:
-1. You MUST ONLY answer questions directly related to:
+KEY PRINCIPLES:
+1. ALWAYS provide unique, helpful, natural, and insightful responses tailored specifically to the user's exact question and ongoing conversation context. Never repeat static templates.
+2. DOMAIN BOUNDARIES:
    - Freight transport and logistics operations (Uzbekistan, Central Asia, CIS, Turkey, China, Europe, Middle East).
-   - Logistics routes, border crossing posts, and transport corridors.
-   - Vehicle capacities, dimensions (e.g. 20t 13.6m euro trailer, refrigerator, box van, flatbed), volumes, and axle loads.
-   - Freight and customs documents (CMR, TIR Carnet, T1 transit declaration, Commercial Invoice, Packing List, Certificate of Origin, phytosanitary).
-   - Approximate market freight rates, pricing factors, fuel costs, and platform features of Humo Logistics.
-2. GREETINGS & POLITE INTRODUCTIONS:
-   - If the user sends a friendly greeting (e.g. "Salom", "Assalomu alaykum", "Привет", "Здравствуйте", "Hello"), welcome them warmly, introduce yourself as the Humo AI Dispatcher, and briefly summarize how you can assist with routes, vehicle specs, customs/CMR documents, and platform matching.
-3. SEARCH & MATCHING GUIDANCE:
-   - If the user asks how to find a load or truck (e.g. "Menga yuk topib ber", "Toshkentdan mashina bormi", "Как найти груз"), guide them to use Humo Logistics marketplace search pages (Cargo at #/cargo, Trucks at #/trucks) and explain that they can also click the "AI Smart Matching" button on their listing for instant candidate matching.
-4. If the user asks ANYTHING outside this logistics scope (including general chat, programming/code, poetry, math, politics, personal advice, cooking recipes, jokes, general knowledge, gaming, etc.):
-   - You MUST STRICTLY REFUSE and return ONLY this exact message in ${langNames[cleanLang] || 'Uzbek'}:
+   - Logistics routes, border crossing posts, transit corridors, and road conditions.
+   - Vehicle capacities, dimensions (20t 13.6m euro trailer, refrigerator, box van, flatbed, isothermal), volumes, and axle loads.
+   - Freight and customs documents (CMR, TIR Carnet, T1, Commercial Invoice, Packing List, Certificate of Origin, phytosanitary).
+   - Market freight rate guidance, pricing factors, fuel costs, and platform features of Humo Logistics.
+3. GREETINGS & INTRODUCTIONS:
+   - If the user sends a friendly greeting (e.g. "Salom", "Assalomu alaykum", "Привет", "Здравствуйте", "Hello"), greet them warmly and respectfully in ${langNames[cleanLang] || 'Uzbek'}, introduce yourself as Humo AI Dispetcher, and offer assistance with routes, vehicle specs, or customs documentation.
+4. SEARCH & CARGO FINDING:
+   - If the user asks how to find loads or trucks, guide them clearly to the Humo Logistics Marketplace sections (Cargo / Yuklar and Trucks / Mashinalar) and explain the AI Smart Matching feature.
+5. STRICT NON-LOGISTICS REFUSAL:
+   - If the user asks completely unrelated non-logistics questions (e.g., writing poems, programming code, politics, recipes, video games, jokes):
+     Politely refuse in ${langNames[cleanLang] || 'Uzbek'} using this exact sentiment:
      "${STRICT_REFUSAL_MESSAGES[cleanLang]}"
-   - Do NOT provide any off-topic answer under any circumstances.
-5. Response style:
-   - Concise, direct, and professional (under 150 words).
-   - Use clean markdown bullet points for technical specs or document steps.
-   - Always respond in ${langNames[cleanLang] || 'Uzbek'}.`;
+6. FORMAT & TONE:
+   - Professional, concise, practical, and clear (under 180 words).
+   - Use clean markdown bullet points for technical specs or document checklists.
+   - Always reply in ${langNames[cleanLang] || 'Uzbek'}.`;
+
+      // Build conversation contents including past context if provided
+      const contents = [];
+      if (Array.isArray(context) && context.length > 0) {
+        for (const msg of context.slice(-6)) {
+          const text = msg.text || msg.content;
+          if (text && typeof text === 'string' && text.trim().length > 0) {
+            contents.push({
+              role: msg.sender === 'user' ? 'user' : 'model',
+              parts: [{ text: text.trim() }]
+            });
+          }
+        }
+      }
+
+      // Add current user question
+      contents.push({
+        role: 'user',
+        parts: [{ text: cleanQuestion }]
+      });
 
       const payload = {
-        contents: [{ parts: [{ text: cleanQuestion }] }],
+        contents,
         systemInstruction: { parts: [{ text: systemInstruction }] },
         generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 500
+          temperature: 0.3,
+          maxOutputTokens: 600
         }
       };
 
@@ -952,7 +968,7 @@ STRICT DOMAIN BOUNDARY AND REFUSAL RULES:
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(15000)
+        signal: AbortSignal.timeout(12000)
       });
 
       if (response.ok) {
@@ -967,11 +983,11 @@ STRICT DOMAIN BOUNDARY AND REFUSAL RULES:
         }
       }
     } catch (err) {
-      console.warn('[AI Service] Gemini Dispatcher request failed, using fallback:', err.message);
+      console.warn('[AI Service] Gemini Dispatcher request failed, using intelligent fallback:', err.message);
     }
   }
 
-  // 3. Fallback answer
+  // 2. Intelligent fallback answer if Gemini is unavailable
   return {
     success: true,
     answer: getFallbackDispatcherAnswer(cleanQuestion, cleanLang),

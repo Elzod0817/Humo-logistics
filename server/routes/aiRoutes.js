@@ -190,10 +190,10 @@ aiRouter.post('/match', requireAuth, async (req, res) => {
 });
 
 // POST /api/ai/ask
-// Strictly constrained Humo AI Dispatcher Assistant
-aiRouter.post('/ask', requireAuth, async (req, res) => {
+// Humo AI Dispatcher Assistant (supports both logged-in users and guests)
+aiRouter.post('/ask', async (req, res) => {
   try {
-    const { question, lang = 'uz' } = req.body || {};
+    const { question, lang = 'uz', context = [] } = req.body || {};
 
     if (!question || typeof question !== 'string' || question.trim().length < 2) {
       return res.status(400).json({
@@ -202,25 +202,29 @@ aiRouter.post('/ask', requireAuth, async (req, res) => {
       });
     }
 
-    if (question.length > 500) {
+    if (question.length > 1000) {
       return res.status(400).json({
         error: 'question_too_long',
-        message: 'Savol uzunligi 500 belgidan oshmasligi kerak'
+        message: 'Savol uzunligi 1000 belgidan oshmasligi kerak'
       });
     }
 
-    // Rate limit: max 15 questions per hour per user
-    const rateCheck = checkDispatcherRateLimit(req.user.id);
+    // Determine user identifier for rate limiting (fallback to IP for guests)
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || 'guest';
+    const userId = req.user ? req.user.id : `guest_${clientIp.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+    // Rate limit: max 25 questions per hour per user/IP
+    const rateCheck = checkDispatcherRateLimit(userId);
     if (!rateCheck.allowed) {
       return res.status(429).json({
         error: 'rate_limit_exceeded',
-        message: 'AI Dispetcher so‘rovlar limiti tugadi (soatiga 15 ta). Iltimos, birozdan so‘ng urinib ko‘ring.',
+        message: 'AI Dispetcher so‘rovlar limiti tugadi (soatiga 25 ta). Iltimos, birozdan so‘ng urinib ko‘ring.',
         retryAfter: rateCheck.retryAfterSeconds
       });
     }
 
     const cleanLang = ['uz', 'ru', 'en'].includes(lang) ? lang : 'uz';
-    const result = await askHumoDispatcher(question, cleanLang, req.user.id);
+    const result = await askHumoDispatcher(question, cleanLang, userId, context);
 
     return res.json({
       success: true,

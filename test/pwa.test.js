@@ -15,7 +15,7 @@ async function testPwa() {
   assert.equal(manifest.short_name, 'Humo Logistics');
   assert.equal(manifest.display, 'standalone');
   assert.equal(manifest.orientation, 'portrait-primary');
-  assert.equal(manifest.theme_color, '#f97316');
+  assert.equal(manifest.theme_color, '#0d0d0d');
   assert.equal(manifest.background_color, '#0d0d0d');
   assert.equal(manifest.start_url, '/#/');
   assert.ok(Array.isArray(manifest.icons) && manifest.icons.length >= 2, 'Manifest must have at least 2 icons');
@@ -55,7 +55,7 @@ async function testPwa() {
   assert.equal(htmlRes.status, 200);
   const html = await htmlRes.text();
   assert.ok(html.includes('<link rel="manifest" href="/manifest.json">'), 'Missing manifest link in index.html');
-  assert.ok(html.includes('<meta name="theme-color" content="#f97316">'), 'Missing theme-color meta tag');
+  assert.ok(html.includes('<meta name="theme-color" content="#0d0d0d">'), 'Missing theme-color meta tag');
   assert.ok(html.includes('<meta name="apple-mobile-web-app-capable" content="yes">'), 'Missing iOS standalone meta');
   assert.ok(html.includes('<link rel="apple-touch-icon" href="/icons/icon-192.png">'), 'Missing apple-touch-icon link');
   console.log('✓ index.html properly links manifest and all iOS/PWA meta headers.');

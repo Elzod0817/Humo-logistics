@@ -1,5 +1,5 @@
-// Humo Logistics Service Worker - v1.0
-const CACHE_NAME = 'humo-logistics-v1.0';
+// Humo Logistics Service Worker - v1.1
+const CACHE_NAME = 'humo-logistics-v1.1';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

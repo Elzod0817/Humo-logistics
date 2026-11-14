@@ -1541,13 +1541,15 @@ function renderMobileSlideDrawer() {
         </div>
       </div>
 
-      <!-- PWA App Install Button in Drawer -->
-      <div class="mobile-drawer-section pwa-drawer-section" style="padding-top: 6px; padding-bottom: 6px;">
-        <button type="button" class="btn btn-outline btn-sm pwa-install-btn" id="btn-pwa-install-drawer" style="width: 100%; justify-content: center; gap: 8px; border-color: rgba(249, 115, 22, 0.45); background: rgba(249, 115, 22, 0.1); color: var(--accent-primary); font-weight: 700;">
-          ${ICONS.download}
-          <span>${t('pwa_install_btn')}</span>
-        </button>
-      </div>
+      <!-- PWA App Install Button in Drawer (hidden if standalone) -->
+      ${isAppStandalone() ? '' : `
+        <div class="mobile-drawer-section pwa-drawer-section" style="padding-top: 6px; padding-bottom: 6px;">
+          <button type="button" class="btn btn-outline btn-sm pwa-install-btn" id="btn-pwa-install-drawer" style="width: 100%; justify-content: center; gap: 8px; border-color: rgba(249, 115, 22, 0.45); background: rgba(249, 115, 22, 0.1); color: var(--accent-primary); font-weight: 700;">
+            ${ICONS.download}
+            <span>${t('pwa_install_btn')}</span>
+          </button>
+        </div>
+      `}
 
       ${state.user ? `
         <div style="padding: 16px; margin-top: auto; border-top: 1px solid var(--surface-border-subtle);">
@@ -1624,12 +1626,14 @@ function render() {
         ` : ''}
       </nav>
 
-      <div class="sidebar-pwa-box desktop-only" id="sidebar-pwa-box">
-        <button type="button" class="btn btn-outline btn-sm pwa-install-btn" id="btn-pwa-install-sidebar" style="width: 100%; justify-content: center; gap: 8px; border-color: rgba(249, 115, 22, 0.4); background: rgba(249, 115, 22, 0.08); color: var(--accent-primary); font-size: 12px; font-weight: 700;">
-          ${ICONS.download}
-          <span>${t('pwa_install_btn')}</span>
-        </button>
-      </div>
+      ${isAppStandalone() ? '' : `
+        <div class="sidebar-pwa-box desktop-only" id="sidebar-pwa-box">
+          <button type="button" class="btn btn-outline btn-sm pwa-install-btn" id="btn-pwa-install-sidebar" style="width: 100%; justify-content: center; gap: 8px; border-color: rgba(249, 115, 22, 0.4); background: rgba(249, 115, 22, 0.08); color: var(--accent-primary); font-size: 12px; font-weight: 700;">
+            ${ICONS.download}
+            <span>${t('pwa_install_btn')}</span>
+          </button>
+        </div>
+      `}
 
       <div class="sidebar-footer">
         ${state.user ? `
@@ -1673,10 +1677,12 @@ function render() {
         <div class="header-right">
           ${renderContactBalancePill()}
 
-          <button type="button" class="btn btn-outline btn-sm pwa-header-btn desktop-only" id="btn-pwa-install-header" style="gap: 6px; border-color: rgba(249, 115, 22, 0.4); background: rgba(249, 115, 22, 0.08); color: var(--accent-primary); font-size: 12px; font-weight: 700;">
-            ${ICONS.download}
-            <span>${t('pwa_install_btn')}</span>
-          </button>
+          ${isAppStandalone() ? '' : `
+            <button type="button" class="btn btn-outline btn-sm pwa-header-btn desktop-only" id="btn-pwa-install-header" style="gap: 6px; border-color: rgba(249, 115, 22, 0.4); background: rgba(249, 115, 22, 0.08); color: var(--accent-primary); font-size: 12px; font-weight: 700;">
+              ${ICONS.download}
+              <span>${t('pwa_install_btn')}</span>
+            </button>
+          `}
 
           <!-- Language Selector -->
           <div class="lang-selector">
@@ -2233,14 +2239,17 @@ function renderListingCard(item) {
       </div>
 
       <div class="cargo-card-footer">
-        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+        <div class="cargo-card-meta" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
           <span>${t('posted_on')}: ${formatDate(item.created_at)}</span>
           ${item.owner_verified ? `
             <span class="verified-badge" title="${t('badge_verified')}">✓ ${t('badge_verified')}</span>
           ` : ''}
           ${item.owner_role ? `<span style="font-size: 11px; color: var(--text-dim);">• ${getRoleLabel(item.owner_role)}</span>` : ''}
+          <span class="badge ${item.status === 'active' ? 'badge-active' : 'badge-closed'}">
+            ${item.status === 'active' ? t('status_active') : t('status_closed')}
+          </span>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div class="card-action-buttons">
           ${item.phone ? `
             ${item.is_phone_unlocked ? `
               <a href="tel:${escapeHtml(item.phone)}" class="btn-phone" onclick="event.stopPropagation();" title="${t('call_contact')}">
@@ -2265,10 +2274,7 @@ function renderListingCard(item) {
               <span>${t('btn_message_owner')}</span>
             </button>
           ` : ''}
-          <span class="badge ${item.status === 'active' ? 'badge-active' : 'badge-closed'}">
-            ${item.status === 'active' ? t('status_active') : t('status_closed')}
-          </span>
-          <span style="color: var(--accent-primary); font-weight: 600;">
+          <span style="color: var(--accent-primary); font-weight: 600;" class="desktop-only">
             ${t('btn_view_details')} →
           </span>
         </div>
@@ -2354,7 +2360,7 @@ function renderTruckCard(item, isMyList = false) {
       </div>
 
       <div class="cargo-card-footer">
-        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+        <div class="cargo-card-meta" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
           <span>${t('posted_on')}: ${formatDate(item.created_at)}</span>
           ${item.owner_verified ? `
             <span class="verified-badge" title="${t('badge_verified')}">✓ ${t('badge_verified')}</span>
@@ -2362,7 +2368,7 @@ function renderTruckCard(item, isMyList = false) {
           ${item.owner_role ? `<span style="font-size: 11px; color: var(--text-dim);">• ${getRoleLabel(item.owner_role)}</span>` : ''}
         </div>
 
-        <div style="display: flex; align-items: center; gap: 10px;">
+        <div class="card-action-buttons">
           ${isMyList ? `
             <button type="button" class="btn btn-sm btn-find-matches" data-type="transport" data-id="${item.id}" onclick="event.stopPropagation();" title="${t('ai_find_matches_cargo')}">
               <span class="btn-match-icon">${ICONS.radar}</span>
@@ -2382,6 +2388,20 @@ function renderTruckCard(item, isMyList = false) {
               <span>${t('btn_delete_truck')}</span>
             </button>
           ` : `
+            ${item.phone ? `
+              ${item.is_phone_unlocked || isRevealed ? `
+                <a href="tel:${escapeHtml(item.phone)}" class="btn-phone" onclick="event.stopPropagation();" title="${t('call_contact')}">
+                  ${ICONS.phone}
+                  <span>${escapeHtml(item.phone)}</span>
+                </a>
+              ` : `
+                <button class="btn btn-phone btn-unlock-phone" data-type="transport" data-id="${item.id}" onclick="event.stopPropagation();" title="${t('btn_reveal_phone')}">
+                  ${ICONS.phone}
+                  <span>${escapeHtml(item.phone)}</span>
+                  <span class="unlock-badge-pill">${t('btn_reveal_phone')}</span>
+                </button>
+              `}
+            ` : ''}
             <button type="button" class="btn btn-sm btn-find-matches" data-type="transport" data-id="${item.id}" onclick="event.stopPropagation();" title="${t('ai_find_matches_cargo')}">
               <span class="btn-match-icon">${ICONS.radar}</span>
               <span>${t('ai_find_matches_cargo')}</span>
@@ -2391,20 +2411,6 @@ function renderTruckCard(item, isMyList = false) {
                 ${ICONS.chat}
                 <span>${t('btn_message_owner')}</span>
               </button>
-            ` : ''}
-            ${item.phone ? `
-              ${item.is_phone_unlocked || isRevealed ? `
-                <a href="tel:${escapeHtml(item.phone)}" class="btn-phone" title="${t('call_contact')}">
-                  ${ICONS.phone}
-                  <span>${escapeHtml(item.phone)}</span>
-                </a>
-              ` : `
-                <button class="btn btn-phone btn-unlock-phone" data-type="transport" data-id="${item.id}" title="${t('btn_reveal_phone')}">
-                  ${ICONS.phone}
-                  <span>${escapeHtml(item.phone)}</span>
-                  <span class="unlock-badge-pill">${t('btn_reveal_phone')}</span>
-                </button>
-              `}
             ` : ''}
           `}
         </div>
@@ -2662,35 +2668,35 @@ function renderMessagesPage() {
         ` : `
           <!-- Chat Header -->
           <div class="chat-main-header">
-            <div class="chat-partner-box">
+            <div class="chat-header-top-row">
               <button class="btn btn-outline btn-sm chat-back-btn" id="btn-chat-mobile-back" title="${t('btn_back_to_chats')}">
                 ← ${t('btn_back_to_chats')}
               </button>
+              ${otherUser?.phone ? `
+                <a href="tel:${escapeHtml(otherUser.phone)}" class="btn-phone chat-header-phone-btn" title="${t('call_contact') || 'Telefon qilish'}">
+                  ${ICONS.phone}
+                  <span>${escapeHtml(otherUser.phone)}</span>
+                </a>
+              ` : ''}
+            </div>
+
+            <div class="chat-header-user-row">
               <div class="chat-partner-avatar">
                 ${otherUser ? (((otherUser.first_name?.[0] || '') + (otherUser.last_name?.[0] || '')).toUpperCase() || 'U') : 'U'}
               </div>
               <div class="chat-partner-details">
-                <div style="display: flex; align-items: center; gap: 6px;">
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                   <span class="chat-partner-name">
                     ${otherUser ? `${otherUser.first_name || ''} ${otherUser.last_name || ''}`.trim() || 'Foydalanuvchi' : 'Foydalanuvchi'}
                   </span>
                   ${otherUser?.is_verified ? `
                     <span class="verified-badge" title="${t('badge_verified')}">✓ ${t('badge_verified')}</span>
                   ` : ''}
+                  ${otherUser?.role ? `
+                    <span class="chat-partner-role">${getRoleLabel(otherUser.role)}</span>
+                  ` : ''}
                 </div>
-                <span class="chat-partner-role">
-                  ${otherUser?.role ? getRoleLabel(otherUser.role) : ''}
-                </span>
               </div>
-            </div>
-
-            <div class="chat-header-actions">
-              ${otherUser?.phone ? `
-                <a href="tel:${escapeHtml(otherUser.phone)}" class="btn-phone" title="Telefon qilish">
-                  ${ICONS.phone}
-                  <span>${escapeHtml(otherUser.phone)}</span>
-                </a>
-              ` : ''}
             </div>
           </div>
 
@@ -3596,14 +3602,14 @@ function renderMyListingCard(item) {
       </div>
 
       <div class="cargo-card-footer">
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div class="cargo-card-meta" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
           <span class="badge ${item.status === 'active' ? 'badge-active' : 'badge-closed'}">
             ${item.status === 'active' ? t('status_active') : t('status_closed')}
           </span>
           <span>${t('posted_on')}: ${formatDate(item.created_at)}</span>
         </div>
 
-        <div style="display: flex; gap: 8px;">
+        <div class="card-action-buttons">
           <button type="button" class="btn btn-sm btn-find-matches" data-type="cargo" data-id="${item.id}" onclick="event.stopPropagation();" title="${t('ai_find_matches_trucks')}">
             <span class="btn-match-icon">${ICONS.radar}</span>
             <span>${t('ai_find_matches_trucks')}</span>

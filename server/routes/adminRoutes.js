@@ -815,3 +815,56 @@ adminRouter.delete('/channels/:id', async (req, res) => {
     res.status(500).json({ error: 'server_error', message: 'Failed to delete channel' });
   }
 });
+
+// GET /api/admin/cargo-directory - All cargo companies for moderation
+adminRouter.get('/cargo-directory', async (req, res) => {
+  try {
+    const rows = await db.queryAll('SELECT * FROM cargo_companies ORDER BY is_verified ASC, created_at DESC');
+    const companies = rows.map(c => ({
+      ...c,
+      is_verified: Boolean(c.is_verified),
+      origin_regions: typeof c.origin_regions === 'string' ? JSON.parse(c.origin_regions || '[]') : (c.origin_regions || []),
+      destination_regions: typeof c.destination_regions === 'string' ? JSON.parse(c.destination_regions || '[]') : (c.destination_regions || []),
+      delivery_modes: typeof c.delivery_modes === 'string' ? JSON.parse(c.delivery_modes || '[]') : (c.delivery_modes || []),
+      services: typeof c.services === 'string' ? JSON.parse(c.services || '[]') : (c.services || []),
+      rating: Number(c.rating || 4.8),
+      min_weight_kg: Number(c.min_weight_kg || 1),
+      price_per_kg_usd: c.price_per_kg_usd != null ? Number(c.price_per_kg_usd) : null,
+      price_per_kg_uzs: c.price_per_kg_uzs != null ? Number(c.price_per_kg_uzs) : null,
+    }));
+    res.json({ success: true, companies });
+  } catch (err) {
+    console.error('Error fetching admin cargo directory:', err);
+    res.status(500).json({ error: 'server_error', message: 'Failed to fetch cargo companies' });
+  }
+});
+
+// POST /api/admin/cargo-directory/:id/verify - Approve / Verify a cargo company
+adminRouter.post('/cargo-directory/:id/verify', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const now = new Date().toISOString();
+    const verifiedVal = db.isPg ? true : 1;
+    await db.query('UPDATE cargo_companies SET is_verified = $1, updated_at = $2 WHERE id = $3', [verifiedVal, now, id]);
+    const updated = await db.queryOne('SELECT * FROM cargo_companies WHERE id = $1', [id]);
+    if (!updated) {
+      return res.status(404).json({ error: 'not_found', message: 'Kargo kompaniyasi topilmadi' });
+    }
+    res.json({ success: true, message: 'Kargo kompaniyasi muvaffaqiyatli tasdiqlandi', company: updated });
+  } catch (err) {
+    console.error('Error verifying cargo company:', err);
+    res.status(500).json({ error: 'server_error', message: 'Kompaniyani tasdiqlashda xatolik' });
+  }
+});
+
+// DELETE /api/admin/cargo-directory/:id - Delete a cargo company
+adminRouter.delete('/cargo-directory/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.query('DELETE FROM cargo_companies WHERE id = $1', [id]);
+    res.json({ success: true, message: 'Kargo kompaniyasi o‘chirildi' });
+  } catch (err) {
+    console.error('Error deleting cargo company:', err);
+    res.status(500).json({ error: 'server_error', message: 'Kompaniyani o‘chirishda xatolik' });
+  }
+});

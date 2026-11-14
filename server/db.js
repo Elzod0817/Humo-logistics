@@ -307,6 +307,27 @@ export async function initDatabase() {
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS cargo_companies (
+        id TEXT PRIMARY KEY,
+        user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'international',
+        origin_regions TEXT NOT NULL DEFAULT '[]',
+        destination_regions TEXT NOT NULL DEFAULT '[]',
+        delivery_modes TEXT NOT NULL DEFAULT '[]',
+        price_per_kg_usd REAL,
+        price_per_kg_uzs REAL,
+        min_weight_kg REAL NOT NULL DEFAULT 1,
+        delivery_days TEXT NOT NULL DEFAULT '12-16 kun',
+        services TEXT NOT NULL DEFAULT '[]',
+        phone TEXT NOT NULL,
+        address TEXT,
+        is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+        rating REAL NOT NULL DEFAULT 4.8,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
       CREATE INDEX IF NOT EXISTS idx_listings_status_created ON listings(status, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_listings_user ON listings(user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_transports_status_created ON transports(status, created_at DESC);
@@ -325,6 +346,7 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
       CREATE INDEX IF NOT EXISTS idx_channels_pinned_created ON channels(is_pinned DESC, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_channel_messages_channel ON channel_messages(channel_id, created_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_cargo_companies_cat_ver ON cargo_companies(category, is_verified, created_at DESC);
 
       ALTER TABLE users ADD COLUMN IF NOT EXISTS free_contacts_remaining INTEGER NOT NULL DEFAULT 117;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_id INTEGER;
@@ -519,6 +541,27 @@ export async function initDatabase() {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS cargo_companies (
+        id TEXT PRIMARY KEY,
+        user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'international',
+        origin_regions TEXT NOT NULL DEFAULT '[]',
+        destination_regions TEXT NOT NULL DEFAULT '[]',
+        delivery_modes TEXT NOT NULL DEFAULT '[]',
+        price_per_kg_usd REAL,
+        price_per_kg_uzs REAL,
+        min_weight_kg REAL NOT NULL DEFAULT 1,
+        delivery_days TEXT NOT NULL DEFAULT '12-16 kun',
+        services TEXT NOT NULL DEFAULT '[]',
+        phone TEXT NOT NULL,
+        address TEXT,
+        is_verified INTEGER NOT NULL DEFAULT 0,
+        rating REAL NOT NULL DEFAULT 4.8,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_listings_status_created ON listings(status, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_listings_user ON listings(user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_transports_status_created ON transports(status, created_at DESC);
@@ -537,6 +580,7 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
       CREATE INDEX IF NOT EXISTS idx_channels_pinned_created ON channels(is_pinned DESC, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_channel_messages_channel ON channel_messages(channel_id, created_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_cargo_companies_cat_ver ON cargo_companies(category, is_verified, created_at DESC);
     `);
 
     // Run safe migrations for existing SQLite databases
@@ -914,6 +958,172 @@ export async function seedDefaultChannels() {
     }
   } catch (err) {
     console.error('Error seeding default channels:', err);
+  }
+}
+
+export async function seedDefaultCargoCompanies() {
+  try {
+    const existingCount = await db.queryOne('SELECT COUNT(*) as count FROM cargo_companies');
+    if (Number(existingCount?.count || 0) > 0) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const verifiedValue = isPg ? true : 1;
+
+    const companies = [
+      {
+        id: 'silk-road-cargo',
+        name: 'Silk Road Cargo Express',
+        category: 'international',
+        origin_regions: JSON.stringify(["Xitoy (Guangzhou, Yiwu, Urumqi)"]),
+        destination_regions: JSON.stringify(["O'zbekiston (Barcha viloyatlar)", "Toshkent"]),
+        delivery_modes: JSON.stringify(['Avto', 'Avia']),
+        price_per_kg_usd: 2.8,
+        price_per_kg_uzs: 36000,
+        min_weight_kg: 1,
+        delivery_days: '12-16 kun',
+        services: JSON.stringify([
+          "1688/Taobao to'lov va qabul qilish",
+          "Bojxona tozalash (Rastamojka)",
+          "Ombor xizmati",
+          "Eshikkacha yetkazish"
+        ]),
+        phone: '+998901234567',
+        address: "Toshkent sh., Chilonzor tumani, Bunyodkor shoh ko'chasi 42",
+        is_verified: verifiedValue,
+        rating: 4.9,
+      },
+      {
+        id: 'istanbul-express-kargo',
+        name: 'Istanbul Express Kargo',
+        category: 'international',
+        origin_regions: JSON.stringify(["Turkiya (Istanbul, Bursa, Gaziantep)"]),
+        destination_regions: JSON.stringify(["O'zbekiston (Toshkent, Samarqand, Farg'ona)"]),
+        delivery_modes: JSON.stringify(['Avto', 'Avia']),
+        price_per_kg_usd: 3.5,
+        price_per_kg_uzs: 45000,
+        min_weight_kg: 5,
+        delivery_days: '5-8 kun',
+        services: JSON.stringify([
+          "Laleli va Merterdan yig'ish",
+          "Kiyim-kechak va matolar",
+          "Sug'urta kafolati",
+          "Tezkor avia"
+        ]),
+        phone: '+998935001122',
+        address: "Toshkent sh., Abu Saxiy savdo markazi, 4-blok",
+        is_verified: verifiedValue,
+        rating: 4.8,
+      },
+      {
+        id: 'dubai-air-cargo',
+        name: 'Dubai Air Cargo & Logistics',
+        category: 'international',
+        origin_regions: JSON.stringify(["BAA (Dubay, Sharja)"]),
+        destination_regions: JSON.stringify(["O'zbekiston (Toshkent xalqaro aeroporti)"]),
+        delivery_modes: JSON.stringify(['Avia']),
+        price_per_kg_usd: 4.2,
+        price_per_kg_uzs: 54000,
+        min_weight_kg: 1,
+        delivery_days: '3-5 kun',
+        services: JSON.stringify([
+          "Tezkor avia yetkazish",
+          "Elektronika va original tovarlar",
+          "To'g'ridan-to'g'ri reys",
+          "Ombor kafolati"
+        ]),
+        phone: '+998977708899',
+        address: "Toshkent sh., Sergeli tumani, Yangi Sergeli 15",
+        is_verified: verifiedValue,
+        rating: 4.9,
+      },
+      {
+        id: 'vodiy-express-pochta',
+        name: 'Vodiy Express Tezkor Kargo',
+        category: 'domestic',
+        origin_regions: JSON.stringify(["Toshkent sh."]),
+        destination_regions: JSON.stringify(["Andijon", "Farg'ona", "Namangan"]),
+        delivery_modes: JSON.stringify(['Avto', 'Kuryer', 'Eshikdan eshikgacha']),
+        price_per_kg_usd: null,
+        price_per_kg_uzs: 15000,
+        min_weight_kg: 1,
+        delivery_days: '24 soat',
+        services: JSON.stringify([
+          "Eshikdan eshikgacha yetkazish",
+          "Naqd pul qabul qilish (COD)",
+          "Kichik va o'rta posilkalar",
+          "Kunlik qatnov"
+        ]),
+        phone: '+998912223344',
+        address: "Toshkent sh., Bektemir tumani, Qo'yliq bozori 7-pavilon",
+        is_verified: verifiedValue,
+        rating: 4.8,
+      },
+      {
+        id: 'oazis-trans-kargo',
+        name: 'Oazis Trans Kargo',
+        category: 'domestic',
+        origin_regions: JSON.stringify(["Toshkent sh.", "Samarqand"]),
+        destination_regions: JSON.stringify(["Buxoro", "Navoiy", "Xorazm (Urganch)", "Qoraqalpog'iston (Nukus)"]),
+        delivery_modes: JSON.stringify(['Avto', 'Yuk furalari']),
+        price_per_kg_usd: null,
+        price_per_kg_uzs: 12000,
+        min_weight_kg: 10,
+        delivery_days: '24-48 soat',
+        services: JSON.stringify([
+          "Katta hajmdagi LTL yuklar",
+          "Paletali yuk tashish",
+          "Viloyat markazlarida omborlar",
+          "CMR va hisob-faktura"
+        ]),
+        phone: '+998993334455',
+        address: "Toshkent sh., Uchtepa tumani, O'rikzor savdo majmuasi",
+        is_verified: verifiedValue,
+        rating: 4.8,
+      },
+      {
+        id: 'janub-express-logistika',
+        name: 'Janub Express Logistika',
+        category: 'domestic',
+        origin_regions: JSON.stringify(["Toshkent sh."]),
+        destination_regions: JSON.stringify(["Qashqadaryo (Qarshi, Shahrisabz)", "Surxondaryo (Termiz, Denov)"]),
+        delivery_modes: JSON.stringify(['Avto', 'Kuryer']),
+        price_per_kg_usd: null,
+        price_per_kg_uzs: 14000,
+        min_weight_kg: 2,
+        delivery_days: '24-36 soat',
+        services: JSON.stringify([
+          "Har kuni qatnov",
+          "Tezkor jo'natma",
+          "SMS xabarnoma",
+          "Mo'rt yuklarni ehtiyotkor tashish"
+        ]),
+        phone: '+998946667788',
+        address: "Toshkent sh., Yakkasaroy tumani, Janubiy vokzal hududi",
+        is_verified: verifiedValue,
+        rating: 4.7,
+      }
+    ];
+
+    for (const c of companies) {
+      await db.query(`
+        INSERT INTO cargo_companies (
+          id, name, category, origin_regions, destination_regions, delivery_modes,
+          price_per_kg_usd, price_per_kg_uzs, min_weight_kg, delivery_days,
+          services, phone, address, is_verified, rating, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+        )
+      `, [
+        c.id, c.name, c.category, c.origin_regions, c.destination_regions, c.delivery_modes,
+        c.price_per_kg_usd, c.price_per_kg_uzs, c.min_weight_kg, c.delivery_days,
+        c.services, c.phone, c.address, c.is_verified, c.rating, now, now
+      ]);
+      console.log(`Seeded official cargo company: ${c.name} (${c.category})`);
+    }
+  } catch (err) {
+    console.error('Error seeding default cargo companies:', err);
   }
 }
 

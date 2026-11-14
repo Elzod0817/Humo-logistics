@@ -518,9 +518,14 @@ export const TRANSLATIONS = {
     ai_dispatcher_send: 'Yuborish',
     btn_translate_msg: 'Tarjima',
     btn_hide_translation: 'Aslini ko‘rish',
+    show_translation: 'Ko‘rsatish',
+    hide_translation: 'Yashirish',
     translating: 'Tarjima qilinmoqda...',
     translated_badge: 'AI Tarjima',
-    translation_error: 'Tarjima qilishda xatolik yuz berdi'
+    translation_error: 'Tarjima qilishda xatolik yuz berdi',
+    theme_title: 'Mavzu rejimi',
+    theme_light: 'Kunduzgi',
+    theme_dark: 'Tungi'
   },
 
   ru: {
@@ -1042,9 +1047,14 @@ export const TRANSLATIONS = {
     ai_dispatcher_send: 'Отправить',
     btn_translate_msg: 'Перевод',
     btn_hide_translation: 'Показать оригинал',
+    show_translation: 'Показать',
+    hide_translation: 'Скрыть',
     translating: 'Перевод...',
     translated_badge: 'AI Перевод',
-    translation_error: 'Ошибка при переводе'
+    translation_error: 'Ошибка при переводе',
+    theme_title: 'Тема оформления',
+    theme_light: 'Светлая',
+    theme_dark: 'Тёмная'
   },
 
   en: {
@@ -1566,9 +1576,14 @@ export const TRANSLATIONS = {
     ai_dispatcher_send: 'Send',
     btn_translate_msg: 'Translate',
     btn_hide_translation: 'Show original',
+    show_translation: 'Show',
+    hide_translation: 'Hide',
     translating: 'Translating...',
     translated_badge: 'AI Translation',
-    translation_error: 'Translation failed'
+    translation_error: 'Translation failed',
+    theme_title: 'Theme Mode',
+    theme_light: 'Light',
+    theme_dark: 'Dark'
   }
 };
 

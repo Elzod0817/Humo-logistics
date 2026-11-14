@@ -15,6 +15,18 @@
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="icon" type="image/png" href="/bird-icon.png">
   
+  <!-- Instant Theme Initializer (prevents theme flash on reload) -->
+  <script>
+    (function() {
+      try {
+        var savedTheme = localStorage.getItem('humo_theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', savedTheme === 'light' ? '#ffffff' : '#0d0d0d');
+      } catch (e) {}
+    })();
+  </script>
+
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>

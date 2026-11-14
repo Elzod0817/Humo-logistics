@@ -144,7 +144,7 @@ authRouter.post('/logout', async (req, res) => {
 
 authRouter.get('/me', (req, res) => {
   if (!req.user) {
-    return res.json({ user: null });
+    return res.json({ user: null, token: null });
   }
-  res.json({ user: req.user });
+  res.json({ user: req.user, token: req.sessionToken });
 });

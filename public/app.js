@@ -51,11 +51,15 @@ const ICONS = {
   arrowRightMini: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m-6-6l6 6-6 6"/></svg>`,
   bolt: `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
   warning: `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
-  searchLarge: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`
+  searchLarge: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+  sun: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
+  moon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
 };
 
 // Global Application State
 const state = {
+  theme: (typeof localStorage !== 'undefined' && localStorage.getItem('humo_theme')) || (typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme')) || 'dark',
+  token: (typeof localStorage !== 'undefined' && localStorage.getItem('humo_token')) || null,
   pwaCanInstall: false,
   showPwaBanner: false,
   aiCargoText: '',
@@ -275,12 +279,39 @@ function getRoleLabel(id) {
   return r ? getLocalizedName(r) : (id || '');
 }
 
+// Theme Management
+function applyTheme(theme) {
+  const selectedTheme = theme === 'light' ? 'light' : 'dark';
+  state.theme = selectedTheme;
+  if (typeof document !== 'undefined') {
+    document.documentElement.setAttribute('data-theme', selectedTheme);
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) {
+      metaTheme.setAttribute('content', selectedTheme === 'light' ? '#ffffff' : '#0d0d0d');
+    }
+  }
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('humo_theme', selectedTheme);
+  }
+}
+
+function toggleTheme() {
+  const newTheme = state.theme === 'light' ? 'dark' : 'light';
+  applyTheme(newTheme);
+  render();
+}
+
 // API Helpers
 async function api(path, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
     ...(options.headers || {})
   };
+
+  const token = state.token || (typeof localStorage !== 'undefined' && localStorage.getItem('humo_token'));
+  if (token && !headers['Authorization'] && !headers['authorization']) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
 
   const res = await fetch(path, {
     credentials: 'same-origin',
@@ -331,6 +362,7 @@ function initRippleFeedback() {
 // Initialize Application
 async function initApp() {
   try {
+    applyTheme(state.theme);
     initRippleFeedback();
 
     // 1. Fetch metadata (locations, body types, roles)
@@ -346,6 +378,12 @@ async function initApp() {
     // 2. Fetch current authenticated user
     const authData = await api('/api/auth/me');
     state.user = authData.user;
+    if (authData && authData.token) {
+      state.token = authData.token;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('humo_token', authData.token);
+      }
+    }
     if (state.user && state.user.phone) {
       state.publishTruckDraft.phone = state.user.phone;
     }
@@ -1204,6 +1242,12 @@ async function handleLogin(email, password) {
       body: JSON.stringify({ email, password })
     });
     state.user = res.user;
+    if (res.token) {
+      state.token = res.token;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('humo_token', res.token);
+      }
+    }
     if (state.user && state.user.phone) {
       state.publishTruckDraft.phone = state.user.phone;
     }
@@ -1235,6 +1279,12 @@ async function handleRegister(email, password) {
       body: JSON.stringify({ email, password })
     });
     state.user = res.user;
+    if (res.token) {
+      state.token = res.token;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('humo_token', res.token);
+      }
+    }
     showToast(t('profile_saved_success'), 'success');
 
     if (state.user) {
@@ -1256,6 +1306,10 @@ async function handleLogout() {
   try {
     await api('/api/auth/logout', { method: 'POST' });
     state.user = null;
+    state.token = null;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('humo_token');
+    }
     state.unreadCount = 0;
     if (state.unreadPollInterval) {
       clearInterval(state.unreadPollInterval);
@@ -1541,6 +1595,22 @@ function renderMobileSlideDrawer() {
         </div>
       </div>
 
+      <div class="mobile-drawer-section">
+        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); margin-bottom: 8px; font-weight: 700;">
+          ${t('theme_title') || 'Rejim'}
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn btn-sm ${state.theme !== 'light' ? 'btn-primary' : 'btn-outline'}" id="btn-drawer-theme-dark" style="flex: 1; justify-content: center; gap: 6px; font-size: 12px;">
+            ${ICONS.moon}
+            <span>${t('theme_dark')}</span>
+          </button>
+          <button type="button" class="btn btn-sm ${state.theme === 'light' ? 'btn-primary' : 'btn-outline'}" id="btn-drawer-theme-light" style="flex: 1; justify-content: center; gap: 6px; font-size: 12px;">
+            ${ICONS.sun}
+            <span>${t('theme_light')}</span>
+          </button>
+        </div>
+      </div>
+
       <!-- PWA App Install Button in Drawer (hidden if standalone) -->
       ${isAppStandalone() ? '' : `
         <div class="mobile-drawer-section pwa-drawer-section" style="padding-top: 6px; padding-bottom: 6px;">
@@ -1683,6 +1753,11 @@ function render() {
               <span>${t('pwa_install_btn')}</span>
             </button>
           `}
+
+          <!-- Theme Toggle Button -->
+          <button type="button" class="theme-toggle-btn" id="btn-theme-toggle" title="${state.theme === 'light' ? t('theme_dark') : t('theme_light')}" aria-label="Toggle Theme">
+            ${state.theme === 'light' ? ICONS.moon : ICONS.sun}
+          </button>
 
           <!-- Language Selector -->
           <div class="lang-selector">
@@ -2749,9 +2824,16 @@ function renderMessagesPage() {
                   ${!isSentByMe ? `
                     <div class="chat-translation-action">
                       ${state.translatedMessages && state.translatedMessages[msg.id] ? `
-                        <div class="translated-msg-box">
-                          <span class="translated-lang-badge">${escapeHtml((state.translatedMessages[msg.id].target_lang || 'UZ').toUpperCase())}</span>
-                          <span>${escapeHtml(state.translatedMessages[msg.id].text)}</span>
+                        <div class="translated-msg-box ${state.translatedMessages[msg.id].hidden ? 'hidden' : ''}">
+                          <div class="translated-msg-header">
+                            <span class="translated-lang-badge">${escapeHtml((state.translatedMessages[msg.id].target_lang || 'UZ').toUpperCase())}</span>
+                            <button type="button" class="btn-toggle-translation" data-msg-id="${msg.id}">
+                              ${state.translatedMessages[msg.id].hidden ? t('show_translation') : t('hide_translation')}
+                            </button>
+                          </div>
+                          ${!state.translatedMessages[msg.id].hidden ? `
+                            <div class="translated-msg-content">${escapeHtml(state.translatedMessages[msg.id].text)}</div>
+                          ` : ''}
                         </div>
                       ` : `
                         <button type="button" class="btn-translate-msg" data-msg-id="${msg.id}" data-text="${escapeHtml(msg.content)}" title="${t('btn_translate_msg')}">
@@ -5170,18 +5252,32 @@ async function handleAiDispatcherSend(questionText) {
   }
 }
 
-async function handleTranslateChatMessage(msgId, text) {
+async function handleTranslateChatMessage(msgId, fallbackText) {
   if (!state.user) {
     navigate('#/auth');
     return;
   }
   state.translatedMessages = state.translatedMessages || {};
 
+  let messageText = fallbackText;
+  if (state.activeConversationData && state.activeConversationData.messages) {
+    const msg = state.activeConversationData.messages.find(m => String(m.id) === String(msgId));
+    if (msg && msg.content) {
+      messageText = msg.content;
+    }
+  }
+
+  if (!messageText || !messageText.trim()) {
+    showToast(t('translation_error') || 'Matn topilmadi', 'error');
+    render();
+    return;
+  }
+
   try {
     const res = await api('/api/ai/translate', {
       method: 'POST',
       body: JSON.stringify({
-        text,
+        text: messageText,
         target_lang: getLanguage()
       })
     });
@@ -5189,12 +5285,24 @@ async function handleTranslateChatMessage(msgId, text) {
     if (res && res.translated_text) {
       state.translatedMessages[msgId] = {
         text: res.translated_text,
-        target_lang: res.target_lang || getLanguage()
+        target_lang: res.target_lang || getLanguage(),
+        hidden: false
       };
       render();
+    } else {
+      throw new Error('Tarjima olinmadi');
     }
   } catch (err) {
+    console.error('Translation error:', err);
     showToast(t('translation_error') || err.message, 'error');
+    render();
+  }
+}
+
+function toggleTranslation(msgId) {
+  if (state.translatedMessages && state.translatedMessages[msgId]) {
+    state.translatedMessages[msgId].hidden = !state.translatedMessages[msgId].hidden;
+    render();
   }
 }
 
@@ -7630,15 +7738,50 @@ function bindEvents() {
     });
   });
 
-  // Stage 4: In-Chat One-Click Translation
+  // Theme Switcher Listeners
+  const btnThemeToggle = document.getElementById('btn-theme-toggle');
+  if (btnThemeToggle) {
+    btnThemeToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleTheme();
+    });
+  }
+
+  const btnDrawerThemeDark = document.getElementById('btn-drawer-theme-dark');
+  if (btnDrawerThemeDark) {
+    btnDrawerThemeDark.addEventListener('click', (e) => {
+      e.stopPropagation();
+      applyTheme('dark');
+      render();
+    });
+  }
+
+  const btnDrawerThemeLight = document.getElementById('btn-drawer-theme-light');
+  if (btnDrawerThemeLight) {
+    btnDrawerThemeLight.addEventListener('click', (e) => {
+      e.stopPropagation();
+      applyTheme('light');
+      render();
+    });
+  }
+
+  // Stage 4: In-Chat One-Click Translation & Show/Hide Toggle
   document.querySelectorAll('.btn-translate-msg').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const msgId = e.currentTarget.getAttribute('data-msg-id');
       const text = e.currentTarget.getAttribute('data-text');
       btn.disabled = true;
-      btn.textContent = t('translating');
+      btn.innerHTML = `<span class="btn-translate-icon spinner-small">⏳</span><span>${t('translating')}</span>`;
       handleTranslateChatMessage(msgId, text);
+    });
+  });
+
+  document.querySelectorAll('.btn-toggle-translation').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const msgId = e.currentTarget.getAttribute('data-msg-id');
+      toggleTranslation(msgId);
     });
   });
 }

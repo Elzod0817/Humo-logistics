@@ -1,0 +1,49 @@
+{
+  "name": "Humo Logistics — Yuk va Transport Birjasi",
+  "short_name": "Humo Logistics",
+  "description": "O'zbekiston va xalqaro yo'nalishlar bo'yicha ishonchli yuk tashish va transport bozori",
+  "start_url": "/#/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0d0d0d",
+  "theme_color": "#f97316",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "logistics", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Yuklar birjasi",
+      "short_name": "Yuklar",
+      "description": "Barcha faol yuklar ro'yxati",
+      "url": "/#/cargo",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Bo'sh mashinalar",
+      "short_name": "Mashinalar",
+      "description": "Bo'sh furalar va transportlar",
+      "url": "/#/transports",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Yuk qo'shish",
+      "short_name": "Yuk qo'shish",
+      "description": "Yangi yuk e'lonini joylashtirish",
+      "url": "/#/add-cargo",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

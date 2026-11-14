@@ -1,0 +1,30 @@
+{
+  "name": "humo-logistics",
+  "version": "1.0.0",
+  "description": "Responsive freight marketplace for Uzbekistan and international road transport",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node test/e2e-journey.test.js",
+    "test:pwa": "node test/pwa.test.js",
+    "test:security": "node test/security-and-load.test.js",
+    "test:all": "node test/e2e-journey.test.js && node test/pwa.test.js && node test/security-and-load.test.js"
+  },
+  "keywords": [
+    "logistics",
+    "freight",
+    "marketplace",
+    "uzbekistan"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0",
+    "pg": "^8.23.1"
+  }
+}

@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Humo Logistics — Boshqaruv Paneli (Web Admin)</title>
+  <link rel="icon" type="image/png" href="/bird-icon.png">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#fff7ed',
+              100: '#ffedd5',
+              500: '#f97316',
+              600: '#ea580c',
+              700: '#c2410c',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #0b0f19; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .glass-card { background: rgba(19, 27, 46, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .active-nav { background-color: #ea580c !important; color: white !important; font-weight: 600; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="border-b border-white/10 bg-[#0f172a]/90 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <img src="/bird-icon.png" alt="Humo" class="w-9 h-9 object-contain drop-shadow">
+        <div>
+          <span class="text-xl font-black tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-500">HUMO</span>
+          <span class="text-xs font-semibold uppercase tracking-wider text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded ml-1 border border-orange-500/20">Admin Panel</span>
+        </div>
+      </div>
+      <div id="header-user" class="hidden flex items-center gap-4">
+        <div class="text-right hidden sm:block">
+          <div id="admin-user-name" class="text-sm font-semibold text-white">Administrator</div>
+          <div id="admin-user-email" class="text-xs text-gray-400">admin@humologistics.uz</div>
+        </div>
+        <button onclick="handleLogout()" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition flex items-center gap-2">
+          <i class="fa-solid fa-arrow-right-from-bracket"></i>
+          <span>Chiqish</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Login Overlay (Shown if unauthenticated or not admin) -->
+  <div id="login-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div class="glass-card max-w-md w-full rounded-2xl p-8 shadow-2xl border border-orange-500/20">
+      <div class="text-center mb-6">
+        <div class="w-14 h-14 mx-auto rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center text-orange-500 text-2xl mb-3 shadow-inner">
+          <i class="fa-solid fa-shield-halved"></i>
+        </div>
+        <h2 class="text-2xl font-bold text-white">Humo Web Admin</h2>
+        <p class="text-sm text-gray-400 mt-1">Platformani boshqarish uchun tizimga kiring</p>
+      </div>
+
+      <div id="login-error" class="hidden mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+        <i class="fa-solid fa-triangle-exclamation text-sm"></i>
+        <span id="login-error-text">Kirishda xatolik yuz berdi</span>
+      </div>
+
+      <form id="admin-login-form" onsubmit="handleLogin(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-300 mb-1">Email yoki Telefon</label>
+          <input id="login-identifier" type="text" required placeholder="admin@humologistics.uz yoki +998901234567"
+            class="w-full bg-[#1e293b] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 transition">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-300 mb-1">Parol</label>
+          <input id="login-password" type="password" required placeholder="••••••••"
+            class="w-full bg-[#1e293b] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 transition">
+        </div>
+        <button type="submit" id="login-submit-btn" class="w-full py-3 px-4 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-semibold text-sm transition shadow-lg shadow-orange-600/30 flex items-center justify-center gap-2">
+          <span>Tizimga kirish</span>
+        </button>
+      </form>
+      <div class="mt-6 text-center text-xs text-gray-500">
+        Faqat admin huquqiga ega akkauntlar qabul qilinadi.
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content Dashboard -->
+  <main id="admin-main" class="hidden flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+
+    <!-- KPI Metric Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+      <div class="glass-card rounded-2xl p-4 border border-white/5">
+        <div class="flex items-center justify-between text-gray-400 text-xs">
+          <span>Jami a'zolar</span>
+          <i class="fa-solid fa-users text-orange-400"></i>
+        </div>
+        <div id="stat-users" class="text-2xl font-bold text-white mt-2">--</div>
+        <div class="text-[11px] text-emerald-400 mt-1 flex items-center gap-1">
+          <i class="fa-solid fa-check"></i> <span id="stat-verified">--</span> tasdiqlangan
+        </div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-4 border border-white/5">
+        <div class="flex items-center justify-between text-gray-400 text-xs">
+          <span>Faol Yuklar</span>
+          <i class="fa-solid fa-box text-emerald-400"></i>
+        </div>
+        <div id="stat-cargo" class="text-2xl font-bold text-white mt-2">--</div>
+        <div class="text-[11px] text-gray-400 mt-1">
+          Jami: <span id="stat-total-cargo">--</span>
+        </div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-4 border border-white/5">
+        <div class="flex items-center justify-between text-gray-400 text-xs">
+          <span>Faol Mashinalar</span>
+          <i class="fa-solid fa-truck-moving text-blue-400"></i>
+        </div>
+        <div id="stat-transports" class="text-2xl font-bold text-white mt-2">--</div>
+        <div class="text-[11px] text-gray-400 mt-1">
+          Jami: <span id="stat-total-transports">--</span>
+        </div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-4 border border-white/5">
+        <div class="flex items-center justify-between text-gray-400 text-xs">
+          <span>Obunalar</span>
+          <i class="fa-solid fa-crown text-amber-400"></i>
+        </div>
+        <div id="stat-subscriptions" class="text-2xl font-bold text-white mt-2">--</div>
+        <div class="text-[11px] text-amber-400/90 mt-1">
+          Kutilayotgan: <span id="stat-pending-requests" class="font-bold">--</span>
+        </div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-4 border border-white/5">
+        <div class="flex items-center justify-between text-gray-400 text-xs">
+          <span>Yozishmalar</span>
+          <i class="fa-solid fa-comments text-purple-400"></i>
+        </div>
+        <div id="stat-conversations" class="text-2xl font-bold text-white mt-2">--</div>
+        <div class="text-[11px] text-gray-400 mt-1">Faol muloqotlar</div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-4 border border-white/5">
+        <div class="flex items-center justify-between text-gray-400 text-xs">
+          <span>Bloklangan</span>
+          <i class="fa-solid fa-ban text-red-400"></i>
+        </div>
+        <div id="stat-banned" class="text-2xl font-bold text-red-400 mt-2">--</div>
+        <div class="text-[11px] text-gray-400 mt-1">To'xtatilganlar</div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="flex items-center gap-2 overflow-x-auto pb-2 border-b border-white/10 scrollbar-none">
+      <button onclick="switchTab('users')" id="tab-btn-users" class="active-nav px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-users"></i>
+        <span>Foydalanuvchilar</span>
+      </button>
+      <button onclick="switchTab('cargos')" id="tab-btn-cargos" class="bg-white/5 text-gray-400 hover:text-white px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-box-open"></i>
+        <span>Yuklar</span>
+      </button>
+      <button onclick="switchTab('transports')" id="tab-btn-transports" class="bg-white/5 text-gray-400 hover:text-white px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-truck"></i>
+        <span>Mashinalar</span>
+      </button>
+      <button onclick="switchTab('cargo-companies')" id="tab-btn-cargo-companies" class="bg-white/5 text-gray-400 hover:text-white px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-warehouse"></i>
+        <span>Kargo Kompaniyalari</span>
+      </button>
+      <button onclick="switchTab('channels')" id="tab-btn-channels" class="bg-white/5 text-gray-400 hover:text-white px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-bullhorn"></i>
+        <span>Guruhlar & Kanallar</span>
+      </button>
+      <button onclick="switchTab('subscriptions')" id="tab-btn-subscriptions" class="bg-white/5 text-gray-400 hover:text-white px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-receipt"></i>
+        <span>To'lov So'rovlari</span>
+      </button>
+    </div>
+
+    <!-- TAB 1: USERS -->
+    <div id="tab-content-users" class="space-y-4">
+      <div class="glass-card rounded-2xl p-4 flex flex-col sm:flex-row gap-3 items-center justify-between">
+        <div class="relative w-full sm:w-80">
+          <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-gray-400 text-xs"></i>
+          <input id="user-search-input" oninput="loadUsers()" type="text" placeholder="Ism, telefon, email bo'yicha..."
+            class="w-full bg-[#1e293b] border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-orange-500">
+        </div>
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+          <select id="user-role-filter" onchange="loadUsers()" class="bg-[#1e293b] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500">
+            <option value="all">Barcha rollar</option>
+            <option value="carrier">Haydovchi (Carrier)</option>
+            <option value="shipper">Yuk egasi (Shipper)</option>
+            <option value="dispatcher">Dispetcher (Dispatcher)</option>
+            <option value="admin">Administrator</option>
+          </select>
+          <button onclick="loadUsers()" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 transition text-xs">
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="glass-card rounded-2xl overflow-hidden border border-white/10">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-white/5 text-gray-400 border-b border-white/10 uppercase tracking-wider text-[11px]">
+              <tr>
+                <th class="py-3 px-4">Foydalanuvchi</th>
+                <th class="py-3 px-4">Aloqa</th>
+                <th class="py-3 px-4">Rol</th>
+                <th class="py-3 px-4">Holat</th>
+                <th class="py-3 px-4">Kontaktlar</th>
+                <th class="py-3 px-4 text-right">Amallar</th>
+              </tr>
+            </thead>
+            <tbody id="users-table-body" class="divide-y divide-white/5 text-gray-300">
+              <tr><td colspan="6" class="py-8 text-center text-gray-500">Yuklanmoqda...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: CARGOS -->
+    <div id="tab-content-cargos" class="hidden space-y-4">
+      <div class="flex justify-between items-center">
+        <h3 class="text-sm font-semibold text-white">Yuk E'lonlari</h3>
+        <button onclick="loadCargos()" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 transition text-xs">
+          <i class="fa-solid fa-rotate-right"></i> Yangilash
+        </button>
+      </div>
+      <div class="glass-card rounded-2xl overflow-hidden border border-white/10">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-white/5 text-gray-400 border-b border-white/10 uppercase tracking-wider text-[11px]">
+              <tr>
+                <th class="py-3 px-4">Yuk nomi</th>
+                <th class="py-3 px-4">Yo'nalish</th>
+                <th class="py-3 px-4">Og'irlik / Hajm</th>
+                <th class="py-3 px-4">Kuzov turi</th>
+                <th class="py-3 px-4">Narx</th>
+                <th class="py-3 px-4">Holat</th>
+                <th class="py-3 px-4 text-right">Amallar</th>
+              </tr>
+            </thead>
+            <tbody id="cargos-table-body" class="divide-y divide-white/5 text-gray-300">
+              <tr><td colspan="7" class="py-8 text-center text-gray-500">Yuklanmoqda...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: TRANSPORTS -->
+    <div id="tab-content-transports" class="hidden space-y-4">
+      <div class="flex justify-between items-center">
+        <h3 class="text-sm font-semibold text-white">Bo'sh Mashinalar E'lonlari</h3>
+        <button onclick="loadTransports()" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 transition text-xs">
+          <i class="fa-solid fa-rotate-right"></i> Yangilash
+        </button>
+      </div>
+      <div class="glass-card rounded-2xl overflow-hidden border border-white/10">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-white/5 text-gray-400 border-b border-white/10 uppercase tracking-wider text-[11px]">
+              <tr>
+                <th class="py-3 px-4">Model / Kuzov</th>
+                <th class="py-3 px-4">Joylashuv</th>
+                <th class="py-3 px-4">Yuk ko'tarish</th>
+                <th class="py-3 px-4">Telefon</th>
+                <th class="py-3 px-4">Holat</th>
+                <th class="py-3 px-4 text-right">Amallar</th>
+              </tr>
+            </thead>
+            <tbody id="transports-table-body" class="divide-y divide-white/5 text-gray-300">
+              <tr><td colspan="6" class="py-8 text-center text-gray-500">Yuklanmoqda...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: CARGO COMPANIES -->
+    <div id="tab-content-cargo-companies" class="hidden space-y-4">
+      <div class="flex justify-between items-center">
+        <h3 class="text-sm font-semibold text-white">Kargo Kompaniyalari (Xalqaro & Mahalliy)</h3>
+        <button onclick="openAddCompanyModal()" class="px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold flex items-center gap-2">
+          <i class="fa-solid fa-plus"></i> Yangi Kargo qo'shish
+        </button>
+      </div>
+      <div id="companies-cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+    <!-- TAB 5: CHANNELS -->
+    <div id="tab-content-channels" class="hidden space-y-4">
+      <div class="flex justify-between items-center">
+        <h3 class="text-sm font-semibold text-white">Jamoat Guruhlari va Rasmiy Kanallar</h3>
+        <button onclick="openAddChannelModal()" class="px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold flex items-center gap-2">
+          <i class="fa-solid fa-plus"></i> Yangi Guruh / Kanal ochish
+        </button>
+      </div>
+      <div id="channels-cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+    <!-- TAB 6: SUBSCRIPTIONS -->
+    <div id="tab-content-subscriptions" class="hidden space-y-4">
+      <div class="flex justify-between items-center">
+        <h3 class="text-sm font-semibold text-white">To'lov & Obuna So'rovlari</h3>
+        <button onclick="loadSubscriptions()" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 transition text-xs">
+          <i class="fa-solid fa-rotate-right"></i> Yangilash
+        </button>
+      </div>
+      <div class="glass-card rounded-2xl overflow-hidden border border-white/10">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-white/5 text-gray-400 border-b border-white/10 uppercase tracking-wider text-[11px]">
+              <tr>
+                <th class="py-3 px-4">Foydalanuvchi</th>
+                <th class="py-3 px-4">Tarif</th>
+                <th class="py-3 px-4">Narxi</th>
+                <th class="py-3 px-4">Izoh / Chek</th>
+                <th class="py-3 px-4">Holat</th>
+                <th class="py-3 px-4 text-right">Tasdiqlash</th>
+              </tr>
+            </thead>
+            <tbody id="subscriptions-table-body" class="divide-y divide-white/5 text-gray-300">
+              <tr><td colspan="6" class="py-8 text-center text-gray-500">Yuklanmoqda...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    let currentAdmin = null;
+    let authToken = localStorage.getItem('humo_admin_token') || '';
+
+    async function apiFetch(url, options = {}) {
+      const headers = options.headers || {};
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+      headers['Content-Type'] = 'application/json';
+      const res = await fetch(url, { ...options, headers });
+      if (res.status === 401 || res.status === 403) {
+        // Not authorized as admin
+        showLoginModal();
+        throw new Error('Unauthorized');
+      }
+      return res;
+    }
+
+    function showLoginModal() {
+      document.getElementById('login-modal').classList.remove('hidden');
+      document.getElementById('admin-main').classList.add('hidden');
+      document.getElementById('header-user').classList.add('hidden');
+    }
+
+    function hideLoginModal() {
+      document.getElementById('login-modal').classList.add('hidden');
+      document.getElementById('admin-main').classList.remove('hidden');
+      document.getElementById('header-user').classList.remove('hidden');
+    }
+
+    async function checkAuth() {
+      try {
+        const res = await apiFetch('/api/auth/me');
+        const data = await res.json();
+        if (data.user && data.user.role === 'admin') {
+          currentAdmin = data.user;
+          document.getElementById('admin-user-name').innerText = currentAdmin.first_name || 'Admin';
+          document.getElementById('admin-user-email').innerText = currentAdmin.email;
+          hideLoginModal();
+          initDashboard();
+        } else {
+          showLoginModal();
+        }
+      } catch (err) {
+        showLoginModal();
+      }
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const identifier = document.getElementById('login-identifier').value.trim();
+      const password = document.getElementById('login-password').value;
+      const errorEl = document.getElementById('login-error');
+      const errorText = document.getElementById('login-error-text');
+
+      errorEl.classList.add('hidden');
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifier, password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || 'Kirishda xatolik');
+        }
+        if (data.user.role !== 'admin') {
+          throw new Error('Ushbu akkauntda admin huquqlari mavjud emas');
+        }
+        authToken = data.token;
+        localStorage.setItem('humo_admin_token', authToken);
+        currentAdmin = data.user;
+        document.getElementById('admin-user-name').innerText = currentAdmin.first_name || 'Admin';
+        document.getElementById('admin-user-email').innerText = currentAdmin.email;
+        hideLoginModal();
+        initDashboard();
+      } catch (err) {
+        errorEl.classList.remove('hidden');
+        errorText.innerText = err.message;
+      }
+    }
+
+    async function handleLogout() {
+      try {
+        await apiFetch('/api/auth/logout', { method: 'POST' });
+      } catch (e) {}
+      localStorage.removeItem('humo_admin_token');
+      authToken = '';
+      currentAdmin = null;
+      showLoginModal();
+    }
+
+    async function initDashboard() {
+      loadStats();
+      loadUsers();
+    }
+
+    async function loadStats() {
+      try {
+        const res = await apiFetch('/api/admin/stats');
+        const { stats } = await res.json();
+        document.getElementById('stat-users').innerText = stats.users;
+        document.getElementById('stat-verified').innerText = stats.verified_users;
+        document.getElementById('stat-cargo').innerText = stats.active_cargo;
+        document.getElementById('stat-total-cargo').innerText = stats.total_cargo;
+        document.getElementById('stat-transports').innerText = stats.active_transports;
+        document.getElementById('stat-total-transports').innerText = stats.total_transports;
+        document.getElementById('stat-subscriptions').innerText = stats.active_subscriptions;
+        document.getElementById('stat-pending-requests').innerText = stats.pending_requests;
+        document.getElementById('stat-conversations').innerText = stats.conversations;
+        document.getElementById('stat-banned').innerText = stats.banned_users;
+      } catch (e) {
+        console.error('Stats error:', e);
+      }
+    }
+
+    function switchTab(tab) {
+      const tabs = ['users', 'cargos', 'transports', 'cargo-companies', 'channels', 'subscriptions'];
+      tabs.forEach(t => {
+        const btn = document.getElementById(`tab-btn-${t}`);
+        const content = document.getElementById(`tab-content-${t}`);
+        if (t === tab) {
+          btn.className = 'active-nav px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition flex items-center gap-2 whitespace-nowrap';
+          content.classList.remove('hidden');
+        } else {
+          btn.className = 'bg-white/5 text-gray-400 hover:text-white px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition flex items-center gap-2 whitespace-nowrap';
+          content.classList.add('hidden');
+        }
+      });
+
+      if (tab === 'users') loadUsers();
+      if (tab === 'cargos') loadCargos();
+      if (tab === 'transports') loadTransports();
+      if (tab === 'cargo-companies') loadCargoCompanies();
+      if (tab === 'channels') loadChannels();
+      if (tab === 'subscriptions') loadSubscriptions();
+    }
+
+    async function loadUsers() {
+      const search = document.getElementById('user-search-input').value;
+      const role = document.getElementById('user-role-filter').value;
+      const tbody = document.getElementById('users-table-body');
+
+      try {
+        const res = await apiFetch(`/api/admin/users?search=${encodeURIComponent(search)}&role=${role}`);
+        const { users } = await res.json();
+        if (users.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="py-8 text-center text-gray-500">Foydalanuvchilar topilmadi</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = users.map(u => `
+          <tr class="hover:bg-white/[0.02] transition">
+            <td class="py-3 px-4">
+              <div class="font-semibold text-white">${u.first_name || 'Nomaʼlum'} ${u.last_name || ''}</div>
+              <div class="text-[11px] text-gray-500">${u.id.substring(0, 8)}...</div>
+            </td>
+            <td class="py-3 px-4">
+              <div class="text-white">${u.phone || '—'}</div>
+              <div class="text-[11px] text-gray-400">${u.email}</div>
+            </td>
+            <td class="py-3 px-4">
+              <span class="px-2 py-0.5 rounded text-[11px] font-medium ${
+                u.role === 'admin' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
+                u.role === 'carrier' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                u.role === 'dispatcher' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' :
+                'bg-orange-500/10 text-orange-400 border border-orange-500/20'
+              }">${u.role}</span>
+            </td>
+            <td class="py-3 px-4">
+              ${u.is_banned ? '<span class="text-red-400 font-bold">Bloklangan</span>' :
+                u.is_verified ? '<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> Tasdiqlangan</span>' :
+                '<span class="text-gray-400">Oddiy</span>'
+              }
+            </td>
+            <td class="py-3 px-4">${u.free_contacts_remaining} ta</td>
+            <td class="py-3 px-4 text-right space-x-2">
+              <button onclick="toggleVerifyUser('${u.id}', ${!u.is_verified})" class="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-[11px] text-gray-300">
+                ${u.is_verified ? 'Bekor qilish' : 'Tasdiqlash'}
+              </button>
+              <button onclick="toggleBanUser('${u.id}', ${!u.is_banned})" class="px-2 py-1 rounded ${u.is_banned ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'} text-[11px]">
+                ${u.is_banned ? 'Tiklash' : 'Bloklash'}
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="6" class="py-8 text-center text-red-400">Xatolik yuz berdi</td></tr>';
+      }
+    }
+
+    async function toggleVerifyUser(userId, verify) {
+      await apiFetch(`/api/admin/users/${userId}/verify`, {
+        method: 'POST',
+        body: JSON.stringify({ is_verified: verify })
+      });
+      loadUsers();
+      loadStats();
+    }
+
+    async function toggleBanUser(userId, ban) {
+      const endpoint = ban ? `/api/admin/users/${userId}/ban` : `/api/admin/users/${userId}/unban`;
+      await apiFetch(endpoint, { method: 'POST' });
+      loadUsers();
+      loadStats();
+    }
+
+    async function loadCargos() {
+      const tbody = document.getElementById('cargos-table-body');
+      try {
+        const res = await apiFetch('/api/admin/listings?type=cargo');
+        const { listings } = await res.json();
+        if (!listings || listings.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-gray-500">Yuklar mavjud emas</td></tr>';
+          return;
+        }
+        tbody.innerHTML = listings.map(c => `
+          <tr class="hover:bg-white/[0.02]">
+            <td class="py-3 px-4 font-semibold text-white">${c.cargo_name}</td>
+            <td class="py-3 px-4">${c.origin_locality || c.origin_country} → ${c.destination_locality || c.destination_country}</td>
+            <td class="py-3 px-4">${c.weight} t / ${c.volume || '—'} m³</td>
+            <td class="py-3 px-4">${c.body_type}</td>
+            <td class="py-3 px-4 text-orange-400 font-bold">${c.price_amount ? c.price_amount.toLocaleString() + ' ' + c.price_currency : 'Kelishilgan'}</td>
+            <td class="py-3 px-4">
+              <span class="px-2 py-0.5 rounded text-[11px] ${c.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}">${c.status}</span>
+            </td>
+            <td class="py-3 px-4 text-right">
+              <button onclick="deleteListing('${c.id}')" class="px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 text-[11px]">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-red-400">Yuklashda xatolik</td></tr>';
+      }
+    }
+
+    async function deleteListing(id) {
+      if (!confirm('Ushbu eʼlonni o‘chirmoqchimisiz?')) return;
+      await apiFetch(`/api/admin/listings/${id}`, { method: 'DELETE' });
+      loadCargos();
+      loadStats();
+    }
+
+    async function loadTransports() {
+      const tbody = document.getElementById('transports-table-body');
+      try {
+        const res = await apiFetch('/api/admin/transports');
+        const { transports } = await res.json();
+        if (!transports || transports.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="py-8 text-center text-gray-500">Mashinalar mavjud emas</td></tr>';
+          return;
+        }
+        tbody.innerHTML = transports.map(t => `
+          <tr class="hover:bg-white/[0.02]">
+            <td class="py-3 px-4 font-semibold text-white">${t.truck_model || 'Yuk mashinasi'} (${t.body_type})</td>
+            <td class="py-3 px-4">${t.origin_city || t.origin_country} → ${t.destination_city || 'Ixtiyoriy'}</td>
+            <td class="py-3 px-4">${t.max_weight} t / ${t.volume || '—'} m³</td>
+            <td class="py-3 px-4 text-gray-300">${t.phone || '—'}</td>
+            <td class="py-3 px-4">
+              <span class="px-2 py-0.5 rounded text-[11px] ${t.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}">${t.status}</span>
+            </td>
+            <td class="py-3 px-4 text-right">
+              <button onclick="deleteTransport('${t.id}')" class="px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 text-[11px]">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="6" class="py-8 text-center text-red-400">Yuklashda xatolik</td></tr>';
+      }
+    }
+
+    async function deleteTransport(id) {
+      if (!confirm('Ushbu transport eʼlonini o‘chirmoqchimisiz?')) return;
+      await apiFetch(`/api/admin/transports/${id}`, { method: 'DELETE' });
+      loadTransports();
+      loadStats();
+    }
+
+    async function loadCargoCompanies() {
+      const container = document.getElementById('companies-cards-container');
+      try {
+        const res = await apiFetch('/api/cargo-directory');
+        const { companies } = await res.json();
+        if (!companies || companies.length === 0) {
+          container.innerHTML = '<div class="col-span-full py-8 text-center text-gray-500">Kargo kompaniyalari mavjud emas</div>';
+          return;
+        }
+        container.innerHTML = companies.map(c => `
+          <div class="glass-card rounded-2xl p-5 border border-white/10 space-y-3">
+            <div class="flex justify-between items-start">
+              <div>
+                <h4 class="font-bold text-white text-base">${c.name}</h4>
+                <div class="text-xs text-orange-400 font-medium">${c.category === 'international' ? '✈️ Xalqaro Kargo' : '🚚 Mahalliy Kargo'}</div>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[11px] ${c.is_verified ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-gray-500/10 text-gray-400'}">
+                ${c.is_verified ? 'Tasdiqlangan' : 'Kutilmoqda'}
+              </span>
+            </div>
+            <div class="text-xs text-gray-400 space-y-1">
+              <div><strong>Marshrut:</strong> ${(c.origin_regions || []).join(', ')} → ${(c.destination_regions || []).join(', ')}</div>
+              <div><strong>Narx:</strong> ${c.price_per_kg_usd ? '$' + c.price_per_kg_usd + '/kg' : (c.price_per_kg_uzs ? c.price_per_kg_uzs.toLocaleString() + " so'm/kg" : 'Kelishilgan')}</div>
+              <div><strong>Muddati:</strong> ${c.delivery_days}</div>
+              <div><strong>Aloqa:</strong> ${c.phone}</div>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        container.innerHTML = '<div class="col-span-full py-8 text-center text-red-400">Yuklashda xatolik</div>';
+      }
+    }
+
+    async function loadChannels() {
+      const container = document.getElementById('channels-cards-container');
+      try {
+        const res = await apiFetch('/api/channels');
+        const { channels } = await res.json();
+        if (!channels || channels.length === 0) {
+          container.innerHTML = '<div class="col-span-full py-8 text-center text-gray-500">Guruhlar mavjud emas</div>';
+          return;
+        }
+        container.innerHTML = channels.map(ch => `
+          <div class="glass-card rounded-2xl p-5 border border-white/10 space-y-3">
+            <div class="flex justify-between items-start">
+              <div>
+                <h4 class="font-bold text-white text-base">${ch.name}</h4>
+                <div class="text-xs text-gray-400">${ch.type === 'channel' ? '📢 Rasmiy Kanal' : '👥 Jamoat Guruhi'}</div>
+              </div>
+              ${ch.is_pinned ? '<span class="text-amber-400 text-xs font-semibold"><i class="fa-solid fa-thumbtack"></i> Qadalgan</span>' : ''}
+            </div>
+            <p class="text-xs text-gray-300">${ch.description || 'Tavsif berilmagan'}</p>
+            <div class="text-xs text-gray-400 flex justify-between items-center pt-2 border-t border-white/5">
+              <span>A'zolar: ${ch.member_count || 'Barcha foydalanuvchilar'}</span>
+              <span>Xabarlar: ${ch.message_count || 0}</span>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        container.innerHTML = '<div class="col-span-full py-8 text-center text-red-400">Yuklashda xatolik</div>';
+      }
+    }
+
+    async function loadSubscriptions() {
+      const tbody = document.getElementById('subscriptions-table-body');
+      try {
+        const res = await apiFetch('/api/admin/subscription-requests');
+        const { requests } = await res.json();
+        if (!requests || requests.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="py-8 text-center text-gray-500">So‘rovlar mavjud emas</td></tr>';
+          return;
+        }
+        tbody.innerHTML = requests.map(r => `
+          <tr class="hover:bg-white/[0.02]">
+            <td class="py-3 px-4 font-semibold text-white">${r.user_name || r.email} (${r.phone || '—'})</td>
+            <td class="py-3 px-4 text-amber-400 font-bold">${r.plan_name_uz}</td>
+            <td class="py-3 px-4">${Number(r.price_uzs).toLocaleString()} so'm</td>
+            <td class="py-3 px-4 text-gray-400">${r.receipt_note || 'Izoh yo‘q'}</td>
+            <td class="py-3 px-4">
+              <span class="px-2 py-0.5 rounded text-[11px] ${r.status === 'pending' ? 'bg-amber-500/10 text-amber-400' : (r.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400')}">
+                ${r.status === 'pending' ? 'Kutilmoqda' : r.status}
+              </span>
+            </td>
+            <td class="py-3 px-4 text-right space-x-2">
+              ${r.status === 'pending' ? `
+                <button onclick="handleApproveSub('${r.id}')" class="px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 text-[11px] font-semibold">
+                  Tasdiqlash
+                </button>
+                <button onclick="handleRejectSub('${r.id}')" class="px-2.5 py-1 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30 text-[11px]">
+                  Rad etish
+                </button>
+              ` : '—'}
+            </td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="6" class="py-8 text-center text-red-400">Yuklashda xatolik</td></tr>';
+      }
+    }
+
+    async function handleApproveSub(id) {
+      if (!confirm('Ushbu obunani tasdiqlaysizmi?')) return;
+      await apiFetch(`/api/admin/subscription-requests/${id}/approve`, { method: 'POST' });
+      loadSubscriptions();
+      loadStats();
+    }
+
+    async function handleRejectSub(id) {
+      if (!confirm('Ushbu so‘rovni rad etasizmi?')) return;
+      await apiFetch(`/api/admin/subscription-requests/${id}/reject`, { method: 'POST' });
+      loadSubscriptions();
+      loadStats();
+    }
+
+    // Startup check
+    window.addEventListener('DOMContentLoaded', checkAuth);
+  </script>
+</body>
+</html>

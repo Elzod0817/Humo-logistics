@@ -107,6 +107,8 @@ app.get('/api/metadata', (req, res) => {
 // 1. Auth endpoints: max 10 attempts per 15 min per IP to block credential stuffing & brute force
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
+app.use('/api/auth/reset-password', authLimiter);
 
 // 2. AI endpoints: max 25 requests per hour per user/IP
 app.use('/api/ai', aiLimiter);
@@ -145,6 +147,11 @@ app.get('/api/my-listings', requireAuth, async (req, res) => {
     console.error('Error fetching my listings:', err);
     res.status(500).json({ error: 'server_error', message: 'Failed to fetch my listings' });
   }
+});
+
+// Dedicated Admin Web Dashboard
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(publicPath, 'admin.html'));
 });
 
 // Fallback to index.html for SPA client-side routing

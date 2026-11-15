@@ -328,6 +328,15 @@ export async function initDatabase() {
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS otp_codes (
+        id TEXT PRIMARY KEY,
+        identifier TEXT NOT NULL,
+        code TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'forgot_password',
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
       CREATE INDEX IF NOT EXISTS idx_listings_status_created ON listings(status, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_listings_user ON listings(user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_transports_status_created ON transports(status, created_at DESC);
@@ -347,6 +356,7 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_channels_pinned_created ON channels(is_pinned DESC, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_channel_messages_channel ON channel_messages(channel_id, created_at ASC);
       CREATE INDEX IF NOT EXISTS idx_cargo_companies_cat_ver ON cargo_companies(category, is_verified, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_otp_codes_lookup ON otp_codes(identifier, code, expires_at);
 
       ALTER TABLE users ADD COLUMN IF NOT EXISTS free_contacts_remaining INTEGER NOT NULL DEFAULT 117;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_id INTEGER;
@@ -562,6 +572,15 @@ export async function initDatabase() {
         updated_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS otp_codes (
+        id TEXT PRIMARY KEY,
+        identifier TEXT NOT NULL,
+        code TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'forgot_password',
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_listings_status_created ON listings(status, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_listings_user ON listings(user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_transports_status_created ON transports(status, created_at DESC);
@@ -581,6 +600,7 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_channels_pinned_created ON channels(is_pinned DESC, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_channel_messages_channel ON channel_messages(channel_id, created_at ASC);
       CREATE INDEX IF NOT EXISTS idx_cargo_companies_cat_ver ON cargo_companies(category, is_verified, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_otp_codes_lookup ON otp_codes(identifier, code, expires_at);
     `);
 
     // Run safe migrations for existing SQLite databases

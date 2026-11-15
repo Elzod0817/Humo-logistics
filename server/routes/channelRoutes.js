@@ -21,9 +21,7 @@ channelRouter.get('/', async (req, res) => {
     `);
 
     const totalUsersResult = await db.queryOne('SELECT COUNT(*) as count FROM users');
-    const registeredUsers = Number(totalUsersResult?.count || 0);
-    // Base member count ensures active representation of community size
-    const baseMemberCount = Math.max(1420, registeredUsers * 14 + 180);
+    const registeredUsers = Math.max(1, Number(totalUsersResult?.count || 0));
 
     const channels = [];
 
@@ -52,15 +50,23 @@ channelRouter.get('/', async (req, res) => {
         type: ch.type || 'group',
         icon: ch.icon || (ch.type === 'channel' ? 'Megaphone' : 'Users'),
         is_pinned: Boolean(ch.is_pinned),
-        member_count: ch.type === 'channel' ? baseMemberCount + 350 : baseMemberCount,
+        member_count: registeredUsers,
         message_count: Number(msgCountRes?.count || 0),
         latest_message: latestMsg ? {
           id: latestMsg.id,
           text: latestMsg.text,
+          content: latestMsg.text,
           created_at: latestMsg.created_at,
           sender_name: formatSenderName(latestMsg),
           sender_role: latestMsg.role
-        } : null,
+        } : {
+          id: 'welcome',
+          text: 'Guruhga xush kelibsiz! Savol va takliflaringizni yozing.',
+          content: 'Guruhga xush kelibsiz! Savol va takliflaringizni yozing.',
+          created_at: ch.created_at,
+          sender_name: 'Humo',
+          sender_role: 'admin'
+        },
         created_at: ch.created_at,
         updated_at: ch.updated_at
       });
@@ -82,13 +88,13 @@ channelRouter.get('/:id', async (req, res) => {
     }
 
     const totalUsersResult = await db.queryOne('SELECT COUNT(*) as count FROM users');
-    const baseMemberCount = Math.max(1420, Number(totalUsersResult?.count || 0) * 14 + 180);
+    const registeredUsers = Math.max(1, Number(totalUsersResult?.count || 0));
 
     res.json({
       channel: {
         ...channel,
         is_pinned: Boolean(channel.is_pinned),
-        member_count: channel.type === 'channel' ? baseMemberCount + 350 : baseMemberCount
+        member_count: registeredUsers
       }
     });
   } catch (err) {

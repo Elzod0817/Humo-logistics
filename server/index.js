@@ -103,6 +103,27 @@ app.get('/api/metadata', (req, res) => {
   });
 });
 
+// Public platform live statistics for mobile Home screen
+app.get('/api/stats', async (req, res) => {
+  try {
+    const [loads, transports, cargoCompanies, users] = await Promise.all([
+      db.queryOne("SELECT COUNT(*) as count FROM listings WHERE status = 'active'"),
+      db.queryOne("SELECT COUNT(*) as count FROM transports WHERE status = 'active'"),
+      db.queryOne("SELECT COUNT(*) as count FROM cargo_companies"),
+      db.queryOne("SELECT COUNT(*) as count FROM users WHERE is_banned = FALSE")
+    ]);
+    res.json({
+      activeLoads: Number(loads?.count || 0),
+      activeTransports: Number(transports?.count || 0),
+      cargoCompanies: Number(cargoCompanies?.count || 0),
+      totalUsers: Math.max(1, Number(users?.count || 0))
+    });
+  } catch (err) {
+    console.error('Error fetching platform stats:', err);
+    res.status(500).json({ error: 'server_error', message: 'Failed to fetch platform metrics' });
+  }
+});
+
 // Multi-Tier In-Memory Rate Limiting
 // 1. Auth endpoints: max 10 attempts per 15 min per IP to block credential stuffing & brute force
 app.use('/api/auth/login', authLimiter);

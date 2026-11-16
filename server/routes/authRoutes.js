@@ -36,6 +36,22 @@ authRouter.get('/email-status', (req, res) => {
   res.json(getEmailStatus());
 });
 
+authRouter.get('/debug-email', (req, res) => {
+  const rawKey = (process.env.BREVO_API_KEY || '').trim();
+  const resendKey = (process.env.RESEND_API_KEY || '').trim();
+  const sender = (process.env.SENDER_EMAIL || process.env.GMAIL_USER || '').trim();
+  res.json({
+    hasKey: Boolean(rawKey),
+    keyPrefix: rawKey ? rawKey.slice(0, 8) : null,
+    keyLength: rawKey.length,
+    isKeyFormatValid: rawKey.startsWith('xkeysib-'),
+    isSmtpKey: rawKey.startsWith('xsmtpsib-'),
+    hasResendKey: Boolean(resendKey),
+    resendPrefix: resendKey ? resendKey.slice(0, 5) : null,
+    sender: sender || null
+  });
+});
+
 authRouter.post('/register', async (req, res) => {
   try {
     const { email, phone, password, name, first_name, last_name, role } = req.body;

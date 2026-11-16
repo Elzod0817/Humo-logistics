@@ -192,6 +192,20 @@ async function sendViaBrevo(brevoApiKey, { toEmail, subject, html, text }) {
     throw err;
   }
 
+  if (apiKey.startsWith('xsmtpsib-')) {
+    const err = new Error("Render'da SMTP kaliti (xsmtpsib-) kiritilgan. Brevo -> SMTP & API -> API Keys bo'limidan xkeysib- bilan boshlanuvchi kalit oling!");
+    err.status = 400;
+    err.brevoCode = 'smtp_key_not_allowed';
+    throw err;
+  }
+
+  if (!apiKey.startsWith('xkeysib-')) {
+    const err = new Error(`Noto'g'ri Brevo API kalit formati (kalit "${apiKey.slice(0, 8)}..." bilan boshlanadi). Brevo API kalitlari "xkeysib-" bilan boshlanishi kerak. Brevo -> SMTP & API -> API Keys bo'limidan kalit oling.`);
+    err.status = 400;
+    err.brevoCode = 'invalid_key_prefix';
+    throw err;
+  }
+
   const payload = {
     sender: {
       name: 'Humo Logistics',
@@ -216,10 +230,13 @@ async function sendViaBrevo(brevoApiKey, { toEmail, subject, html, text }) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    const errorMsg = data.message || (data.code ? `[${data.code}] ${data.message || ''}` : `Brevo API HTTP ${response.status}`);
+    let errorMsg = data.message || (data.code ? `[${data.code}] ${data.message || ''}` : `Brevo API HTTP ${response.status}`);
+    if (response.status === 401 || (data.message && data.message.toLowerCase().includes('key not found'))) {
+      errorMsg = "Brevo API kaliti topilmadi yoki yaroqsiz (Key not found). Brevo -> SMTP & API -> API Keys bo'limiga kirib yangi API kalit ('xkeysib-...') yarating va Render'da BREVO_API_KEY o'zgaruvchisiga o'rnating.";
+    }
     console.error(`[EmailService:Brevo] Delivery failed (HTTP ${response.status}):`, data);
     const err = new Error(errorMsg);
-    err.brevoCode = data.code;
+    err.brevoCode = data.code || 'unauthorized';
     err.status = response.status >= 400 && response.status < 600 ? response.status : 500;
     throw err;
   }

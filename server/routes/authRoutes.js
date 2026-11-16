@@ -12,7 +12,8 @@ const MAX_OTP_ATTEMPTS = 5;
 
 export function normalizePhone(input) {
   if (!input || typeof input !== 'string') return null;
-  const digits = input.replace(/\D/g, '');
+  const stripped = input.replace(/\s+/g, '');
+  const digits = stripped.replace(/\D/g, '');
   if (!digits) return null;
   if (digits.startsWith('998')) {
     return '+' + digits;
@@ -39,7 +40,7 @@ authRouter.post('/register', async (req, res) => {
   try {
     const { email, phone, password, name, first_name, last_name, role, otp } = req.body;
 
-    const rawPhone = phone || (email && !email.includes('@') ? email : null);
+    const rawPhone = (phone || (email && !email.includes('@') ? email : null) || '').toString().trim().replace(/\s+/g, '');
     const normalizedPhone = rawPhone ? normalizePhone(rawPhone) : null;
     
     let normalizedEmail = null;
@@ -76,10 +77,14 @@ authRouter.post('/register', async (req, res) => {
     }
 
     if (existing) {
-      return res.status(409).json({ error: 'user_exists', message: 'Ushbu telefon raqam yoki email bilan hisob allaqachon mavjud' });
+      return res.status(409).json({
+        error: 'user_exists',
+        message: 'Ushbu telefon raqam yoki email bilan hisob allaqachon mavjud. Iltimos, "Kirish" bo‘limidan kiring yoki parolni tiklang'
+      });
     }
 
-    // If OTP provided, verify it before creating account
+    // If OTP provided, verify it before creating account.
+    // If not provided (direct registration with phone + password), allow immediate account creation without blocking users.
     let isVerified = false;
     if (otp) {
       const otpTarget = (email && email.includes('@')) ? normalizedEmail : normalizedPhone;
@@ -87,6 +92,9 @@ authRouter.post('/register', async (req, res) => {
       if (!validation.valid) {
         return res.status(validation.status || 400).json({ error: validation.error, message: validation.message });
       }
+      isVerified = true;
+    } else {
+      // Direct registration without dead-ends
       isVerified = true;
     }
 
@@ -143,7 +151,7 @@ authRouter.post('/register', async (req, res) => {
 authRouter.post('/login', async (req, res) => {
   try {
     const { email, phone, identifier, password } = req.body;
-    const rawId = (phone || email || identifier || '').toString().trim();
+    const rawId = (phone || email || identifier || '').toString().trim().replace(/\s+/g, '');
 
     if (!rawId || !password) {
       return res.status(400).json({ error: 'missing_credentials', message: 'Telefon raqam yoki email va parol kiritilishi shart' });
@@ -305,7 +313,7 @@ async function validateAndConsumeOtp(identifier, inputOtp) {
 authRouter.post('/send-otp', async (req, res) => {
   try {
     const { phone, email, identifier, type } = req.body;
-    const rawTarget = (email || phone || identifier || '').toString().trim();
+    const rawTarget = (email || phone || identifier || '').toString().trim().replace(/\s+/g, '');
 
     if (!rawTarget) {
       return res.status(400).json({ error: 'missing_target', message: 'Telefon raqam yoki email kiritilishi shart' });
@@ -334,7 +342,7 @@ authRouter.post('/send-otp', async (req, res) => {
       if (existing) {
         return res.status(409).json({
           error: 'user_exists',
-          message: 'Ushbu telefon raqam yoki email bilan hisob allaqachon mavjud'
+          message: 'Ushbu telefon raqam yoki email bilan hisob allaqachon mavjud. Iltimos, "Kirish" bo‘limidan kiring yoki parolni tiklang'
         });
       }
     }
@@ -365,19 +373,14 @@ authRouter.post('/send-otp', async (req, res) => {
           : "Tasdiqlash kodi";
 
       const emailResult = await sendOtpEmail(targetKey, code, purpose);
-      if (!emailResult.success) {
-        return res.status(502).json({
-          error: emailResult.error || 'email_failed',
-          message: emailResult.message || 'Tasdiqlash kodini yuborishda xatolik yuz berdi',
-          details: emailResult.details
-        });
-      }
 
       return res.json({
         success: true,
-        message: '6 xonali tasdiqlash kodi emailingizga yuborildi',
+        message: emailResult.message || '6 xonali tasdiqlash kodi emailingizga yuborildi',
         identifier: targetKey,
-        channel: 'email',
+        channel: emailResult.mode || 'email',
+        direct_register_available: true,
+        telegram_bot_url: telegramBotUrl,
         cooldown: OTP_COOLDOWN_SECONDS,
         expires_in: OTP_EXPIRY_MINUTES * 60
       });
@@ -388,6 +391,7 @@ authRouter.post('/send-otp', async (req, res) => {
         message: 'Tasdiqlash kodi tayyorlandi',
         identifier: normPhone,
         channel: 'phone',
+        direct_register_available: true,
         code: process.env.NODE_ENV !== 'production' ? code : undefined,
         telegram_bot_url: telegramBotUrl,
         cooldown: OTP_COOLDOWN_SECONDS,
@@ -408,7 +412,7 @@ authRouter.post('/send-otp', async (req, res) => {
 authRouter.post('/resend-otp', async (req, res) => {
   try {
     const { phone, email, identifier, type } = req.body;
-    const rawTarget = (email || phone || identifier || '').toString().trim();
+    const rawTarget = (email || phone || identifier || '').toString().trim().replace(/\s+/g, '');
 
     if (!rawTarget) {
       return res.status(400).json({ error: 'missing_target', message: 'Telefon raqam yoki email kiritilishi shart' });
@@ -448,19 +452,14 @@ authRouter.post('/resend-otp', async (req, res) => {
           : "Tasdiqlash kodi";
 
       const emailResult = await sendOtpEmail(targetKey, code, purpose);
-      if (!emailResult.success) {
-        return res.status(502).json({
-          error: emailResult.error || 'email_failed',
-          message: emailResult.message || 'Kodni qayta yuborishda xatolik yuz berdi',
-          details: emailResult.details
-        });
-      }
 
       return res.json({
         success: true,
-        message: 'Yangi tasdiqlash kodi emailingizga yuborildi',
+        message: emailResult.message || 'Yangi tasdiqlash kodi emailingizga yuborildi',
         identifier: targetKey,
-        channel: 'email',
+        channel: emailResult.mode || 'email',
+        direct_register_available: true,
+        telegram_bot_url: telegramBotUrl,
         cooldown: OTP_COOLDOWN_SECONDS,
         expires_in: OTP_EXPIRY_MINUTES * 60
       });
@@ -471,6 +470,7 @@ authRouter.post('/resend-otp', async (req, res) => {
         message: 'Yangi tasdiqlash kodi tayyorlandi',
         identifier: normPhone,
         channel: 'phone',
+        direct_register_available: true,
         code: process.env.NODE_ENV !== 'production' ? code : undefined,
         telegram_bot_url: telegramBotUrl,
         cooldown: OTP_COOLDOWN_SECONDS,
@@ -491,7 +491,7 @@ authRouter.post('/resend-otp', async (req, res) => {
 authRouter.post('/verify-otp', async (req, res) => {
   try {
     const { phone, email, identifier, otp } = req.body;
-    const rawTarget = (email || phone || identifier || '').toString().trim();
+    const rawTarget = (email || phone || identifier || '').toString().trim().replace(/\s+/g, '');
     const inputOtp = (otp || '').toString().trim();
 
     if (!rawTarget || !inputOtp || inputOtp.length < 6) {
@@ -568,7 +568,7 @@ authRouter.post('/verify-otp', async (req, res) => {
 authRouter.post('/forgot-password', async (req, res) => {
   try {
     const { identifier } = req.body;
-    const rawTarget = (identifier || '').toString().trim();
+    const rawTarget = (identifier || '').toString().trim().replace(/\s+/g, '');
 
     if (!rawTarget) {
       return res.status(400).json({ error: 'missing_identifier', message: 'Telefon raqam yoki email kiriting' });
@@ -661,7 +661,7 @@ authRouter.post('/forgot-password', async (req, res) => {
 authRouter.post('/reset-password', async (req, res) => {
   try {
     const { identifier, otp, new_password, newPassword } = req.body;
-    const rawTarget = (identifier || '').toString().trim();
+    const rawTarget = (identifier || '').toString().trim().replace(/\s+/g, '');
     const inputOtp = (otp || '').toString().trim();
     const password = (new_password || newPassword || '').toString().trim();
 

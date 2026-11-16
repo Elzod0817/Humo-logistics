@@ -3,20 +3,52 @@ import nodemailer from 'nodemailer';
 let transporter = null;
 
 function getTransporter() {
-  const user = process.env.GMAIL_USER || process.env.EMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD || process.env.EMAIL_PASS;
+  const user = (process.env.GMAIL_USER || process.env.EMAIL_USER || '').trim();
+  const rawPass = (process.env.GMAIL_APP_PASSWORD || process.env.EMAIL_PASS || '').trim();
+  // Strip spaces from Google App Password (e.g., 'abcd efgh ijkl mnop' -> 'abcdefghijklmnop')
+  const pass = rawPass.replace(/\s+/g, '');
 
   if (user && pass) {
     if (!transporter) {
       transporter = nodemailer.createTransport({
-        service: 'gmail',
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
         auth: { user, pass }
       });
-      console.log(`[EmailService] Initialized official Gmail SMTP transport for ${user}`);
+      console.log(`[EmailService] Initialized official Gmail SMTP transport for ${user} (host: smtp.gmail.com, port: 465, secure: true)`);
     }
     return { mailer: transporter, user };
   }
   return null;
+}
+
+/**
+ * Returns current email configuration status without exposing credentials
+ */
+export function getEmailStatus() {
+  const user = (process.env.GMAIL_USER || process.env.EMAIL_USER || '').trim();
+  const rawPass = (process.env.GMAIL_APP_PASSWORD || process.env.EMAIL_PASS || '').trim();
+  const pass = rawPass.replace(/\s+/g, '');
+  const configured = Boolean(user && pass);
+
+  let maskedUser = 'missing';
+  if (user) {
+    const parts = user.split('@');
+    maskedUser = parts.length === 2 ? `${parts[0].slice(0, 3)}***@${parts[1]}` : `${user.slice(0, 3)}***`;
+  }
+
+  return {
+    configured,
+    user: maskedUser,
+    has_password: Boolean(pass),
+    smtp_host: 'smtp.gmail.com',
+    port: 465,
+    secure: true
+  };
 }
 
 /**
@@ -143,7 +175,6 @@ Xavfsizlik eslatmasi: Humo Logistics xodimlari hech qachon sizdan ushbu kodni yo
 export async function sendOtpEmail(toEmail, code, purpose = "Ro'yxatdan o'tishni tasdiqlash kodi") {
   const transportData = getTransporter();
   const rawCode = code.toString().trim();
-  // Formatted code e.g. "482 910"
   const formattedCode = rawCode.length === 6 ? `${rawCode.slice(0, 3)} ${rawCode.slice(3)}` : rawCode;
 
   const purposeTitle = purpose.includes('tiklash')
@@ -156,7 +187,7 @@ export async function sendOtpEmail(toEmail, code, purpose = "Ro'yxatdan o'tishni
   const html = buildOtpEmailHtml({ purposeTitle, formattedCode, expiryMinutes: 10 });
   const text = buildOtpEmailText({ purposeTitle, rawCode, expiryMinutes: 10 });
 
-  const fromEmail = process.env.GMAIL_USER || process.env.EMAIL_USER || 'noreply@humologistics.uz';
+  const fromEmail = transportData?.user || process.env.GMAIL_USER || process.env.EMAIL_USER || 'noreply@humologistics.uz';
   const fromHeader = `"Humo Logistics" <${fromEmail}>`;
 
   if (transportData?.mailer) {
@@ -171,20 +202,35 @@ export async function sendOtpEmail(toEmail, code, purpose = "Ro'yxatdan o'tishni
       console.log(`[EmailService] Official Humo Logistics email sent successfully to ${toEmail}: messageId=${info.messageId}`);
       return { success: true, mode: 'smtp', messageId: info.messageId };
     } catch (err) {
-      console.error(`[EmailService] Failed to send email via SMTP to ${toEmail}:`, err.message);
-      console.log(`[EmailService] Fallback console notice: OTP Code for ${toEmail}: [${formattedCode}]`);
-      return { success: true, mode: 'fallback', code: rawCode };
+      console.error(`[EmailService] Failed to send email via SMTP to ${toEmail}:`, {
+        code: err.code,
+        command: err.command,
+        response: err.response,
+        message: err.message
+      });
+      return {
+        success: false,
+        error: 'smtp_error',
+        message: `Gmail SMTP orqali email yuborishda xatolik: ${err.message} (${err.code || 'UNKNOWN'})`,
+        details: { code: err.code, response: err.response }
+      };
     }
   } else {
+    console.warn(`[EmailService] GMAIL_USER or GMAIL_APP_PASSWORD missing in environment.`);
     console.log(`=======================================================`);
-    console.log(`[EmailService: OFFICIAL HUMO LOGISTICS GMAIL OTP]`);
+    console.log(`[EmailService: SIMULATED HUMO LOGISTICS GMAIL OTP]`);
     console.log(`From: ${fromHeader}`);
     console.log(`To: ${toEmail}`);
     console.log(`Subject: ${subject}`);
     console.log(`Verification Code: [ ${formattedCode} ] (Expires in 10 minutes)`);
     console.log(`Note: Configure GMAIL_USER and GMAIL_APP_PASSWORD in environment for live SMTP delivery.`);
     console.log(`=======================================================`);
-    return { success: true, mode: 'simulated', code: rawCode };
+    return {
+      success: false,
+      error: 'email_not_configured',
+      message: 'Email xizmati sozlanmagan: GMAIL_USER yoki GMAIL_APP_PASSWORD o‘zgaruvchisi topilmadi. Render.com muhitida Environment Variables sozlanishi kerak.',
+      details: { configured: false }
+    };
   }
 }
 

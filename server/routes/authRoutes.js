@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { db } from '../db.js';
 import { hashPassword, verifyPassword, createSession, deleteSession } from '../auth.js';
-import { sendOtpEmail, sendRegistrationOtpEmail, sendPasswordResetEmail } from '../services/emailService.js';
+import { sendOtpEmail, sendRegistrationOtpEmail, sendPasswordResetEmail, getEmailStatus } from '../services/emailService.js';
 
 export const authRouter = Router();
 
@@ -29,6 +29,10 @@ authRouter.get('/google-status', (req, res) => {
     reason: 'Google authentication requires cloud-configured OAuth 2.0 credentials and domain redirect endpoints, which are unavailable on this local environment.',
     limitation_reported: true
   });
+});
+
+authRouter.get('/email-status', (req, res) => {
+  res.json(getEmailStatus());
 });
 
 authRouter.post('/register', async (req, res) => {
@@ -360,7 +364,15 @@ authRouter.post('/send-otp', async (req, res) => {
           ? "Parolni tiklash kodi"
           : "Tasdiqlash kodi";
 
-      await sendOtpEmail(targetKey, code, purpose);
+      const emailResult = await sendOtpEmail(targetKey, code, purpose);
+      if (!emailResult.success) {
+        return res.status(502).json({
+          error: emailResult.error || 'email_failed',
+          message: emailResult.message || 'Tasdiqlash kodini yuborishda xatolik yuz berdi',
+          details: emailResult.details
+        });
+      }
+
       return res.json({
         success: true,
         message: '6 xonali tasdiqlash kodi emailingizga yuborildi',
@@ -384,7 +396,11 @@ authRouter.post('/send-otp', async (req, res) => {
     }
   } catch (err) {
     console.error('Error sending OTP:', err);
-    res.status(500).json({ error: 'server_error', message: 'Tasdiqlash kodini yuborishda xatolik yuz berdi' });
+    res.status(500).json({
+      error: 'server_error',
+      message: `Tasdiqlash kodini yuborishda server xatosi: ${err.message}`,
+      details: { code: err.code, name: err.name }
+    });
   }
 });
 
@@ -431,7 +447,15 @@ authRouter.post('/resend-otp', async (req, res) => {
           ? "Parolni tiklash kodi"
           : "Tasdiqlash kodi";
 
-      await sendOtpEmail(targetKey, code, purpose);
+      const emailResult = await sendOtpEmail(targetKey, code, purpose);
+      if (!emailResult.success) {
+        return res.status(502).json({
+          error: emailResult.error || 'email_failed',
+          message: emailResult.message || 'Kodni qayta yuborishda xatolik yuz berdi',
+          details: emailResult.details
+        });
+      }
+
       return res.json({
         success: true,
         message: 'Yangi tasdiqlash kodi emailingizga yuborildi',
@@ -455,7 +479,11 @@ authRouter.post('/resend-otp', async (req, res) => {
     }
   } catch (err) {
     console.error('Error in resend-otp:', err);
-    res.status(500).json({ error: 'server_error', message: 'Kodni qayta yuborishda xatolik yuz berdi' });
+    res.status(500).json({
+      error: 'server_error',
+      message: `Kodni qayta yuborishda server xatosi: ${err.message}`,
+      details: { code: err.code, name: err.name }
+    });
   }
 });
 
@@ -587,7 +615,15 @@ authRouter.post('/forgot-password', async (req, res) => {
     const telegramBotUrl = phoneDigits ? `https://t.me/HumoLogisticsBot?start=verify_${phoneDigits}` : null;
 
     if (user.email && !user.email.endsWith('@humologistics.uz')) {
-      await sendPasswordResetEmail(user.email, code);
+      const emailResult = await sendPasswordResetEmail(user.email, code);
+      if (!emailResult.success) {
+        return res.status(502).json({
+          error: emailResult.error || 'email_failed',
+          message: emailResult.message || 'Parolni tiklash kodini yuborishda xatolik yuz berdi',
+          details: emailResult.details
+        });
+      }
+
       return res.json({
         success: true,
         message: `Tiklash kodi ${user.email} manziliga yuborildi`,
@@ -613,7 +649,11 @@ authRouter.post('/forgot-password', async (req, res) => {
     }
   } catch (err) {
     console.error('Error during forgot-password:', err);
-    res.status(500).json({ error: 'server_error', message: 'Parolni tiklashda xatolik yuz berdi' });
+    res.status(500).json({
+      error: 'server_error',
+      message: `Parolni tiklashda server xatosi: ${err.message}`,
+      details: { code: err.code, name: err.name }
+    });
   }
 });
 

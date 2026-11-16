@@ -38,7 +38,7 @@ authRouter.get('/email-status', (req, res) => {
 
 authRouter.post('/register', async (req, res) => {
   try {
-    const { email, phone, password, name, first_name, last_name, role, otp } = req.body;
+    const { email, phone, password, name, first_name, last_name, role } = req.body;
 
     const rawPhone = (phone || (email && !email.includes('@') ? email : null) || '').toString().trim().replace(/\s+/g, '');
     const normalizedPhone = rawPhone ? normalizePhone(rawPhone) : null;
@@ -83,73 +83,47 @@ authRouter.post('/register', async (req, res) => {
       });
     }
 
-    // Strict OTP Verification for Registration
-    const otpTarget = (email && email.includes('@')) ? normalizedEmail : normalizedPhone;
-    if (!otp) {
-      return res.status(400).json({
-        success: false,
-        error: 'missing_otp',
-        message: "Tasdiqlash kodi (OTP) kiritilishi shart"
+    const targetKey = (email && email.includes('@')) ? normalizedEmail : normalizedPhone;
+
+    // Rate limiting: 60-second cooldown
+    const cooldownRemaining = await checkOtpCooldown(targetKey);
+    if (cooldownRemaining > 0) {
+      return res.status(429).json({
+        error: 'rate_limit',
+        message: `Iltimos, qayta yuborishdan oldin ${cooldownRemaining} soniya kuting`,
+        retry_after: cooldownRemaining
       });
     }
 
-    const validation = await validateAndConsumeOtp(otpTarget, otp);
-    if (!validation.valid) {
-      return res.status(validation.status || 400).json({
-        success: false,
-        error: validation.error || 'invalid_code',
-        message: validation.message || "Noto'g'ri yoki muddati o'tgan tasdiqlash kodi"
-      });
+    // Generate 6-digit OTP
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    await createOtpRecord(targetKey, code, 'registration');
+
+    // Send 6-digit OTP via Brevo
+    if (normalizedEmail) {
+      await sendOtpEmail(normalizedEmail, code, "Ro'yxatdan o'tishni tasdiqlash kodi");
+    } else {
+      console.log(`[Register OTP] Generated OTP for ${normalizedPhone}: [${code}]`);
     }
-    const isVerified = true;
 
-    const id = crypto.randomUUID();
-    const passwordHash = hashPassword(password);
-    const now = new Date().toISOString();
-    const userFirstName = (first_name || name || '').trim() || null;
-    const userLastName = (last_name || '').trim() || null;
-    const userRole = role && ['carrier', 'shipper', 'dispatcher', 'admin', 'user'].includes(role) ? role : 'carrier';
-
-    await db.query(`
-      INSERT INTO users (
-        id, email, password_hash, first_name, last_name, phone, role, 
-        profile_completed, is_verified, is_banned, free_contacts_remaining, 
-        plan_id, plan_expires_at, created_at, updated_at
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, 
-        1, $8, false, 117, 
-        NULL, NULL, $9, $10
-      )
-    `, [id, normalizedEmail, passwordHash, userFirstName, userLastName, normalizedPhone, userRole, isVerified, now, now]);
-
-    const { token } = await createSession(id);
-
-    res.cookie('humo_session', token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000
-    });
-
-    return res.status(201).json({
-      token,
-      user: {
-        id,
-        email: normalizedEmail,
-        first_name: userFirstName,
-        last_name: userLastName,
-        phone: normalizedPhone,
-        role: userRole,
-        profile_completed: 1,
-        is_verified: isVerified,
-        free_contacts_remaining: 117,
-        plan_id: null,
-        plan_expires_at: null,
-        created_at: now
-      }
+    // Mandatory OTP Step: ONLY send OTP and return requiresOtp: true — NEVER return a token!
+    return res.status(200).json({
+      success: true,
+      requiresOtp: true,
+      email: normalizedEmail,
+      identifier: targetKey,
+      message: '6 xonali tasdiqlash kodi emailingizga yuborildi',
+      cooldown: OTP_COOLDOWN_SECONDS,
+      expires_in: OTP_EXPIRY_MINUTES * 60
     });
   } catch (err) {
-    console.error('Error during registration:', err);
-    res.status(500).json({ error: 'server_error', message: 'Ro‘yxatdan o‘tishda xatolik yuz berdi' });
+    console.error('Error during registration OTP dispatch:', err);
+    const statusCode = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
+    return res.status(statusCode).json({
+      success: false,
+      error: err.brevoCode || err.code || 'server_error',
+      message: err.message || 'Ro‘yxatdan o‘tishda tasdiqlash kodini yuborishda xatolik yuz berdi'
+    });
   }
 });
 
@@ -558,8 +532,8 @@ authRouter.post('/verify-otp', async (req, res) => {
       const userFirstName = (first_name || name || '').trim() || (isEmail ? targetKey.split('@')[0] : 'Foydalanuvchi');
       const userLastName = (last_name || '').trim() || null;
       const userRole = role && ['carrier', 'shipper', 'dispatcher', 'admin', 'user'].includes(role) ? role : 'carrier';
-      const userEmail = isEmail ? targetKey : `${normPhone.replace(/\D/g, '')}@humologistics.uz`;
-      const userPhone = normPhone || null;
+      const userPhone = phone ? normalizePhone(phone) : normPhone;
+      const userEmail = (email && email.includes('@')) ? email.trim().toLowerCase() : (isEmail ? targetKey : (userPhone ? `${userPhone.replace(/\D/g, '')}@humologistics.uz` : `${newId.slice(0, 8)}@humologistics.uz`));
 
       await db.query(`
         INSERT INTO users (

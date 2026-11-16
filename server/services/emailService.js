@@ -3,21 +3,45 @@
  * Uses HTTPS REST APIs (Brevo & Resend) to eliminate raw SMTP timeouts (ETIMEDOUT) on cloud hosts (Render.com)
  */
 
-/**
- * Returns current email configuration status without exposing secrets
- */
-export function getEmailStatus() {
-  const brevoKey = (process.env.BREVO_API_KEY || '').trim();
-  const resendKey = (process.env.RESEND_API_KEY || '').trim();
-  const senderEmail = (
+export function getSanitizedBrevoKey() {
+  let key = (process.env.BREVO_API_KEY || '').trim();
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    key = key.slice(1, -1).trim();
+  }
+  return key;
+}
+
+export function getSanitizedSenderEmail() {
+  let email = (
     process.env.SENDER_EMAIL ||
     process.env.GMAIL_USER ||
     process.env.EMAIL_USER ||
     'no-reply@humologistics.uz'
   ).trim();
+  if ((email.startsWith('"') && email.endsWith('"')) || (email.startsWith("'") && email.endsWith("'"))) {
+    email = email.slice(1, -1).trim();
+  }
+  return email;
+}
+
+export function getSanitizedResendKey() {
+  let key = (process.env.RESEND_API_KEY || '').trim();
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    key = key.slice(1, -1).trim();
+  }
+  return key;
+}
+
+/**
+ * Returns current email configuration status without exposing secrets
+ */
+export function getEmailStatus() {
+  const brevoKey = getSanitizedBrevoKey();
+  const resendKey = getSanitizedResendKey();
+  const senderEmail = getSanitizedSenderEmail();
 
   const configured = Boolean(brevoKey || resendKey);
-  const activeChannel = brevoKey ? 'brevo_https' : (resendKey ? 'resend_https' : 'simulated');
+  const activeChannel = brevoKey ? 'brevo_https' : (resendKey ? 'resend_https' : 'unconfigured');
 
   let maskedSender = senderEmail;
   if (senderEmail && senderEmail.includes('@')) {
@@ -159,19 +183,21 @@ Xavfsizlik eslatmasi: Humo Logistics xodimlari hech qachon sizdan ushbu kodni yo
  * without needing custom domain DNS records!
  */
 async function sendViaBrevo(brevoApiKey, { toEmail, subject, html, text }) {
-  const senderEmail = (
-    process.env.SENDER_EMAIL ||
-    process.env.GMAIL_USER ||
-    process.env.EMAIL_USER ||
-    'no-reply@humologistics.uz'
-  ).trim();
+  const apiKey = (brevoApiKey || getSanitizedBrevoKey()).trim();
+  const senderEmail = getSanitizedSenderEmail();
+
+  if (!apiKey) {
+    const err = new Error("BREVO_API_KEY sozlanmagan. Iltimos, Render environment'da BREVO_API_KEY ni sozlang.");
+    err.status = 500;
+    throw err;
+  }
 
   const payload = {
     sender: {
       name: 'Humo Logistics',
       email: senderEmail
     },
-    to: [{ email: toEmail }],
+    to: [{ email: toEmail.trim().toLowerCase() }],
     subject,
     htmlContent: html,
     textContent: text
@@ -180,7 +206,7 @@ async function sendViaBrevo(brevoApiKey, { toEmail, subject, html, text }) {
   const response = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
     headers: {
-      'api-key': brevoApiKey,
+      'api-key': apiKey,
       'Content-Type': 'application/json',
       'accept': 'application/json'
     },
@@ -206,15 +232,12 @@ async function sendViaBrevo(brevoApiKey, { toEmail, subject, html, text }) {
  * Send OTP via Resend API (HTTPS REST)
  */
 async function sendViaResend(resendApiKey, { toEmail, subject, html, text }) {
-  const senderEmail = (
-    process.env.SENDER_EMAIL ||
-    process.env.RESEND_FROM ||
-    'Humo Logistics <onboarding@resend.dev>'
-  ).trim();
+  const apiKey = (resendApiKey || getSanitizedResendKey()).trim();
+  const senderEmail = getSanitizedSenderEmail();
 
   const payload = {
     from: senderEmail.includes('<') ? senderEmail : `Humo Logistics <${senderEmail}>`,
-    to: [toEmail],
+    to: [toEmail.trim().toLowerCase()],
     subject,
     html,
     text
@@ -223,7 +246,7 @@ async function sendViaResend(resendApiKey, { toEmail, subject, html, text }) {
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${resendApiKey}`,
+      'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(payload)
@@ -263,8 +286,8 @@ export async function sendOtpEmail(toEmail, code, purpose = "Ro'yxatdan o'tishni
   const html = buildOtpEmailHtml({ purposeTitle, formattedCode, expiryMinutes: 10 });
   const text = buildOtpEmailText({ purposeTitle, rawCode, expiryMinutes: 10 });
 
-  const brevoKey = (process.env.BREVO_API_KEY || '').trim();
-  const resendKey = (process.env.RESEND_API_KEY || '').trim();
+  const brevoKey = getSanitizedBrevoKey();
+  const resendKey = getSanitizedResendKey();
 
   // 1. Strictly use Brevo Transactional Email API (HTTPS port 443)
   if (brevoKey) {

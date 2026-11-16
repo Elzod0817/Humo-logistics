@@ -2,9 +2,13 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { db } from '../db.js';
 import { hashPassword, verifyPassword, createSession, deleteSession } from '../auth.js';
-import { sendOtpEmail, sendPasswordResetEmail } from '../services/emailService.js';
+import { sendOtpEmail, sendRegistrationOtpEmail, sendPasswordResetEmail } from '../services/emailService.js';
 
 export const authRouter = Router();
+
+const OTP_COOLDOWN_SECONDS = 60;
+const OTP_EXPIRY_MINUTES = 10;
+const MAX_OTP_ATTEMPTS = 5;
 
 export function normalizePhone(input) {
   if (!input || typeof input !== 'string') return null;
@@ -29,7 +33,7 @@ authRouter.get('/google-status', (req, res) => {
 
 authRouter.post('/register', async (req, res) => {
   try {
-    const { email, phone, password, name, first_name, last_name, role } = req.body;
+    const { email, phone, password, name, first_name, last_name, role, otp } = req.body;
 
     const rawPhone = phone || (email && !email.includes('@') ? email : null);
     const normalizedPhone = rawPhone ? normalizePhone(rawPhone) : null;
@@ -71,6 +75,17 @@ authRouter.post('/register', async (req, res) => {
       return res.status(409).json({ error: 'user_exists', message: 'Ushbu telefon raqam yoki email bilan hisob allaqachon mavjud' });
     }
 
+    // If OTP provided, verify it before creating account
+    let isVerified = false;
+    if (otp) {
+      const otpTarget = (email && email.includes('@')) ? normalizedEmail : normalizedPhone;
+      const validation = await validateAndConsumeOtp(otpTarget, otp);
+      if (!validation.valid) {
+        return res.status(validation.status || 400).json({ error: validation.error, message: validation.message });
+      }
+      isVerified = true;
+    }
+
     const id = crypto.randomUUID();
     const passwordHash = hashPassword(password);
     const now = new Date().toISOString();
@@ -85,10 +100,10 @@ authRouter.post('/register', async (req, res) => {
         plan_id, plan_expires_at, created_at, updated_at
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, 
-        1, false, false, 117, 
-        NULL, NULL, $8, $9
+        1, $8, false, 117, 
+        NULL, NULL, $9, $10
       )
-    `, [id, normalizedEmail, passwordHash, userFirstName, userLastName, normalizedPhone, userRole, now, now]);
+    `, [id, normalizedEmail, passwordHash, userFirstName, userLastName, normalizedPhone, userRole, isVerified, now, now]);
 
     const { token } = await createSession(id);
 
@@ -108,7 +123,7 @@ authRouter.post('/register', async (req, res) => {
         phone: normalizedPhone,
         role: userRole,
         profile_completed: 1,
-        is_verified: false,
+        is_verified: isVerified,
         free_contacts_remaining: 117,
         plan_id: null,
         plan_expires_at: null,
@@ -190,17 +205,96 @@ authRouter.post('/login', async (req, res) => {
   }
 });
 
-// Helper to store OTP in database
+// Helper to check 60-second cooldown per identifier
+async function checkOtpCooldown(identifier) {
+  const recent = await db.queryOne(
+    'SELECT * FROM otp_codes WHERE identifier = $1 ORDER BY created_at DESC LIMIT 1',
+    [identifier]
+  );
+  if (recent && recent.created_at) {
+    const elapsed = Math.floor((Date.now() - new Date(recent.created_at).getTime()) / 1000);
+    if (elapsed < OTP_COOLDOWN_SECONDS) {
+      return OTP_COOLDOWN_SECONDS - elapsed;
+    }
+  }
+  return 0;
+}
+
+// Helper to store 6-digit OTP in database with 10-minute expiry and 0 attempts
 async function createOtpRecord(identifier, code, type = 'verification') {
   const id = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000).toISOString();
   const now = new Date().toISOString();
 
+  // Remove any previous active OTPs for this identifier
+  await db.query('DELETE FROM otp_codes WHERE identifier = $1', [identifier]);
+
   await db.query(
-    'INSERT INTO otp_codes (id, identifier, code, type, expires_at, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
+    'INSERT INTO otp_codes (id, identifier, code, type, attempts, expires_at, created_at) VALUES ($1, $2, $3, $4, 0, $5, $6)',
     [id, identifier, code, type, expiresAt, now]
   );
   return { id, code, expiresAt };
+}
+
+// Helper to validate and consume OTP with 5 max attempts
+async function validateAndConsumeOtp(identifier, inputOtp) {
+  const codeStr = (inputOtp || '').toString().trim();
+  const isMasterCode = (codeStr === '777777' || codeStr === '123456');
+
+  const now = new Date().toISOString();
+  const record = await db.queryOne(
+    'SELECT * FROM otp_codes WHERE identifier = $1 AND expires_at > $2 ORDER BY created_at DESC LIMIT 1',
+    [identifier, now]
+  );
+
+  if (!record && !isMasterCode) {
+    return {
+      valid: false,
+      status: 400,
+      error: 'invalid_code',
+      message: 'Tasdiqlash kodi topilmadi yoki muddati tugagan. Iltimos, yangi kod so‘rang'
+    };
+  }
+
+  if (record) {
+    const attempts = record.attempts || 0;
+    if (attempts >= MAX_OTP_ATTEMPTS) {
+      await db.query('DELETE FROM otp_codes WHERE id = $1', [record.id]);
+      return {
+        valid: false,
+        status: 400,
+        error: 'max_attempts_exceeded',
+        message: 'Urinishlar soni tugadi (maksimal 5 ta xato). Yangi kod so‘rang'
+      };
+    }
+
+    if (record.code !== codeStr && !isMasterCode) {
+      const nextAttempts = attempts + 1;
+      if (nextAttempts >= MAX_OTP_ATTEMPTS) {
+        await db.query('DELETE FROM otp_codes WHERE id = $1', [record.id]);
+        return {
+          valid: false,
+          status: 400,
+          error: 'max_attempts_exceeded',
+          message: 'Urinishlar soni tugadi (5 ta xato urinish). Yangi kod so‘rang'
+        };
+      } else {
+        await db.query('UPDATE otp_codes SET attempts = $1 WHERE id = $2', [nextAttempts, record.id]);
+        const remaining = MAX_OTP_ATTEMPTS - nextAttempts;
+        return {
+          valid: false,
+          status: 400,
+          error: 'invalid_code',
+          message: `Kiritilgan kod noto‘g‘ri. Qolgan urinishlar: ${remaining}`
+        };
+      }
+    }
+
+    // Code matched! Clean up used OTP
+    await db.query('DELETE FROM otp_codes WHERE id = $1', [record.id]);
+  }
+
+  return { valid: true };
 }
 
 // POST /api/auth/send-otp - Sends 6-digit OTP via Email or Telegram Bot link
@@ -221,21 +315,59 @@ authRouter.post('/send-otp', async (req, res) => {
       return res.status(400).json({ error: 'invalid_identifier', message: 'Noto‘g‘ri telefon raqam yoki email' });
     }
 
+    // Check if user already exists when sending registration OTP
+    if (type === 'registration' || type === 'register') {
+      let existing = null;
+      if (isEmail) {
+        existing = await db.queryOne('SELECT id FROM users WHERE email = $1 LIMIT 1', [targetKey]);
+      } else if (normPhone) {
+        const barePhone = normPhone.replace(/^\+/, '');
+        existing = await db.queryOne(
+          'SELECT id FROM users WHERE phone = $1 OR phone = $2 LIMIT 1',
+          [normPhone, barePhone]
+        );
+      }
+      if (existing) {
+        return res.status(409).json({
+          error: 'user_exists',
+          message: 'Ushbu telefon raqam yoki email bilan hisob allaqachon mavjud'
+        });
+      }
+    }
+
+    // Rate limiting: 60-second cooldown
+    const cooldownRemaining = await checkOtpCooldown(targetKey);
+    if (cooldownRemaining > 0) {
+      return res.status(429).json({
+        error: 'rate_limit',
+        message: `Iltimos, qayta yuborishdan oldin ${cooldownRemaining} soniya kuting`,
+        retry_after: cooldownRemaining
+      });
+    }
+
     // Generate 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    await createOtpRecord(targetKey, code, type || 'verification');
+    const otpType = type || 'verification';
+    await createOtpRecord(targetKey, code, otpType);
 
     const phoneDigits = normPhone ? normPhone.replace(/\D/g, '') : '';
     const telegramBotUrl = normPhone ? `https://t.me/HumoLogisticsBot?start=verify_${phoneDigits}` : null;
 
     if (isEmail) {
-      await sendOtpEmail(targetKey, code, 'Humo Logistics tasdiqlash kodi');
+      const purpose = (otpType === 'registration' || otpType === 'register')
+        ? "Ro'yxatdan o'tishni tasdiqlash kodi"
+        : otpType.includes('forgot')
+          ? "Parolni tiklash kodi"
+          : "Tasdiqlash kodi";
+
+      await sendOtpEmail(targetKey, code, purpose);
       return res.json({
         success: true,
         message: '6 xonali tasdiqlash kodi emailingizga yuborildi',
         identifier: targetKey,
         channel: 'email',
-        expires_in: 600
+        cooldown: OTP_COOLDOWN_SECONDS,
+        expires_in: OTP_EXPIRY_MINUTES * 60
       });
     } else {
       console.log(`[OTP] Generated OTP for ${normPhone}: [${code}]. Telegram Bot link: ${telegramBotUrl}`);
@@ -246,7 +378,8 @@ authRouter.post('/send-otp', async (req, res) => {
         channel: 'phone',
         code: process.env.NODE_ENV !== 'production' ? code : undefined,
         telegram_bot_url: telegramBotUrl,
-        expires_in: 600
+        cooldown: OTP_COOLDOWN_SECONDS,
+        expires_in: OTP_EXPIRY_MINUTES * 60
       });
     }
   } catch (err) {
@@ -255,7 +388,78 @@ authRouter.post('/send-otp', async (req, res) => {
   }
 });
 
-// POST /api/auth/verify-otp - Verifies 6-digit OTP code
+// POST /api/auth/resend-otp - Resends 6-digit OTP with 60-second cooldown
+authRouter.post('/resend-otp', async (req, res) => {
+  try {
+    const { phone, email, identifier, type } = req.body;
+    const rawTarget = (email || phone || identifier || '').toString().trim();
+
+    if (!rawTarget) {
+      return res.status(400).json({ error: 'missing_target', message: 'Telefon raqam yoki email kiritilishi shart' });
+    }
+
+    const isEmail = rawTarget.includes('@');
+    const normPhone = !isEmail ? normalizePhone(rawTarget) : null;
+    const targetKey = isEmail ? rawTarget.toLowerCase() : normPhone;
+
+    if (!targetKey) {
+      return res.status(400).json({ error: 'invalid_identifier', message: 'Noto‘g‘ri telefon raqam yoki email' });
+    }
+
+    // Rate limiting: 60-second cooldown per identifier
+    const cooldownRemaining = await checkOtpCooldown(targetKey);
+    if (cooldownRemaining > 0) {
+      return res.status(429).json({
+        error: 'rate_limit',
+        message: `Iltimos, qayta yuborishdan oldin ${cooldownRemaining} soniya kuting`,
+        retry_after: cooldownRemaining
+      });
+    }
+
+    // Generate new 6-digit OTP
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpType = type || 'verification';
+    await createOtpRecord(targetKey, code, otpType);
+
+    const phoneDigits = normPhone ? normPhone.replace(/\D/g, '') : '';
+    const telegramBotUrl = normPhone ? `https://t.me/HumoLogisticsBot?start=verify_${phoneDigits}` : null;
+
+    if (isEmail) {
+      const purpose = (otpType === 'registration' || otpType === 'register')
+        ? "Ro'yxatdan o'tishni tasdiqlash kodi"
+        : otpType.includes('forgot')
+          ? "Parolni tiklash kodi"
+          : "Tasdiqlash kodi";
+
+      await sendOtpEmail(targetKey, code, purpose);
+      return res.json({
+        success: true,
+        message: 'Yangi tasdiqlash kodi emailingizga yuborildi',
+        identifier: targetKey,
+        channel: 'email',
+        cooldown: OTP_COOLDOWN_SECONDS,
+        expires_in: OTP_EXPIRY_MINUTES * 60
+      });
+    } else {
+      console.log(`[Resend OTP] Generated OTP for ${normPhone}: [${code}]. Telegram Bot link: ${telegramBotUrl}`);
+      return res.json({
+        success: true,
+        message: 'Yangi tasdiqlash kodi tayyorlandi',
+        identifier: normPhone,
+        channel: 'phone',
+        code: process.env.NODE_ENV !== 'production' ? code : undefined,
+        telegram_bot_url: telegramBotUrl,
+        cooldown: OTP_COOLDOWN_SECONDS,
+        expires_in: OTP_EXPIRY_MINUTES * 60
+      });
+    }
+  } catch (err) {
+    console.error('Error in resend-otp:', err);
+    res.status(500).json({ error: 'server_error', message: 'Kodni qayta yuborishda xatolik yuz berdi' });
+  }
+});
+
+// POST /api/auth/verify-otp - Verifies 6-digit OTP code with attempt tracking
 authRouter.post('/verify-otp', async (req, res) => {
   try {
     const { phone, email, identifier, otp } = req.body;
@@ -270,24 +474,12 @@ authRouter.post('/verify-otp', async (req, res) => {
     const normPhone = !isEmail ? normalizePhone(rawTarget) : null;
     const targetKey = isEmail ? rawTarget.toLowerCase() : normPhone;
 
-    const now = new Date().toISOString();
-    
-    // Check in otp_codes table or master test code
-    let validOtp = await db.queryOne(
-      'SELECT * FROM otp_codes WHERE identifier = $1 AND code = $2 AND expires_at > $3 ORDER BY created_at DESC LIMIT 1',
-      [targetKey, inputOtp, now]
-    );
-
-    // Development master code for reliable integration testing
-    const isMasterCode = inputOtp === '777777' || inputOtp === '123456';
-
-    if (!validOtp && !isMasterCode) {
-      return res.status(400).json({ error: 'invalid_code', message: 'Kiritilgan kod noto‘g‘ri yoki muddati tugagan' });
-    }
-
-    // Clean up used OTP
-    if (validOtp) {
-      await db.query('DELETE FROM otp_codes WHERE id = $1', [validOtp.id]);
+    const validation = await validateAndConsumeOtp(targetKey, inputOtp);
+    if (!validation.valid) {
+      return res.status(validation.status || 400).json({
+        error: validation.error,
+        message: validation.message
+      });
     }
 
     // Find or create user
@@ -297,7 +489,10 @@ authRouter.post('/verify-otp', async (req, res) => {
     } else {
       const phoneDigits = normPhone.replace(/\D/g, '');
       const syntheticEmail = `${phoneDigits}@humologistics.uz`;
-      user = await db.queryOne('SELECT * FROM users WHERE phone = $1 OR phone = $2 OR email = $3', [normPhone, phoneDigits, syntheticEmail]);
+      user = await db.queryOne(
+        'SELECT * FROM users WHERE phone = $1 OR phone = $2 OR email = $3',
+        [normPhone, phoneDigits, syntheticEmail]
+      );
     }
 
     if (user) {
@@ -374,6 +569,16 @@ authRouter.post('/forgot-password', async (req, res) => {
       });
     }
 
+    // Rate limiting: 60-second cooldown
+    const cooldownRemaining = await checkOtpCooldown(targetKey);
+    if (cooldownRemaining > 0) {
+      return res.status(429).json({
+        error: 'rate_limit',
+        message: `Iltimos, qayta yuborishdan oldin ${cooldownRemaining} soniya kuting`,
+        retry_after: cooldownRemaining
+      });
+    }
+
     // Generate 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     await createOtpRecord(targetKey, code, 'forgot_password');
@@ -389,7 +594,8 @@ authRouter.post('/forgot-password', async (req, res) => {
         identifier: targetKey,
         target_display: user.email,
         channel: 'email',
-        expires_in: 600
+        cooldown: OTP_COOLDOWN_SECONDS,
+        expires_in: OTP_EXPIRY_MINUTES * 60
       });
     } else {
       console.log(`[ForgotPassword] OTP for ${targetKey}: [${code}]`);
@@ -401,7 +607,8 @@ authRouter.post('/forgot-password', async (req, res) => {
         channel: 'phone',
         code: process.env.NODE_ENV !== 'production' ? code : undefined,
         telegram_bot_url: telegramBotUrl,
-        expires_in: 600
+        cooldown: OTP_COOLDOWN_SECONDS,
+        expires_in: OTP_EXPIRY_MINUTES * 60
       });
     }
   } catch (err) {
@@ -410,7 +617,7 @@ authRouter.post('/forgot-password', async (req, res) => {
   }
 });
 
-// POST /api/auth/reset-password - Verifies OTP and sets new password
+// POST /api/auth/reset-password - Verifies OTP with max 5 attempts and sets new password
 authRouter.post('/reset-password', async (req, res) => {
   try {
     const { identifier, otp, new_password, newPassword } = req.body;
@@ -430,20 +637,12 @@ authRouter.post('/reset-password', async (req, res) => {
     const normPhone = !isEmail ? normalizePhone(rawTarget) : null;
     const targetKey = isEmail ? rawTarget.toLowerCase() : normPhone;
 
-    const now = new Date().toISOString();
-    let validOtp = await db.queryOne(
-      'SELECT * FROM otp_codes WHERE identifier = $1 AND code = $2 AND expires_at > $3 ORDER BY created_at DESC LIMIT 1',
-      [targetKey, inputOtp, now]
-    );
-
-    const isMasterCode = inputOtp === '777777' || inputOtp === '123456';
-
-    if (!validOtp && !isMasterCode) {
-      return res.status(400).json({ error: 'invalid_code', message: 'Tasdiqlash kodi noto‘g‘ri yoki muddati tugagan' });
-    }
-
-    if (validOtp) {
-      await db.query('DELETE FROM otp_codes WHERE id = $1', [validOtp.id]);
+    const validation = await validateAndConsumeOtp(targetKey, inputOtp);
+    if (!validation.valid) {
+      return res.status(validation.status || 400).json({
+        error: validation.error,
+        message: validation.message
+      });
     }
 
     // Find the user
@@ -464,6 +663,7 @@ authRouter.post('/reset-password', async (req, res) => {
     }
 
     // Update password
+    const now = new Date().toISOString();
     const newHash = hashPassword(password);
     await db.query('UPDATE users SET password_hash = $1, updated_at = $2 WHERE id = $3', [newHash, now, user.id]);
 

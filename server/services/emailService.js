@@ -12,74 +12,192 @@ function getTransporter() {
         service: 'gmail',
         auth: { user, pass }
       });
-      console.log(`[EmailService] Initialized Gmail SMTP transport with ${user}`);
+      console.log(`[EmailService] Initialized official Gmail SMTP transport for ${user}`);
     }
-    return transporter;
+    return { mailer: transporter, user };
   }
   return null;
 }
 
 /**
- * Send 6-digit verification code or password reset code
+ * Builds a clean, responsive, dark-and-orange branded HTML email template for Humo Logistics
  */
-export async function sendOtpEmail(toEmail, code, purpose = 'Tasdiqlash kodi') {
-  const mailer = getTransporter();
-  const subject = `Humo Logistics: ${purpose} (${code})`;
-  
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0f19; color: #ffffff; padding: 20px; }
-        .card { max-width: 500px; margin: 0 auto; background: #131b2e; border: 1px solid rgba(249, 115, 22, 0.3); border-radius: 16px; padding: 32px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .logo { text-align: center; margin-bottom: 24px; font-size: 24px; font-weight: bold; color: #f97316; letter-spacing: 1px; }
-        .title { font-size: 20px; font-weight: 600; text-align: center; margin-bottom: 12px; color: #ffffff; }
-        .desc { font-size: 14px; color: #94a3b8; text-align: center; line-height: 1.5; margin-bottom: 24px; }
-        .code-box { background: #1e293b; border: 2px dashed #f97316; border-radius: 12px; padding: 18px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #f97316; margin-bottom: 24px; }
-        .warning { font-size: 12px; color: #64748b; text-align: center; border-top: 1px solid #1e293b; padding-top: 16px; }
-      </style>
-    </head>
-    <body>
-      <div class="card">
-        <div class="logo">⚡ HUMO LOGISTICS</div>
-        <div class="title">${purpose}</div>
-        <div class="desc">Humo Logistics tizimidagi hisobingiz uchun bir martalik xavfsizlik kodi. Kod 10 daqiqa davomida amal qiladi:</div>
-        <div class="code-box">${code}</div>
-        <div class="warning">Agar ushbu so'rovni siz yubormagan bo'lsangiz, xabarni e'tiborsiz qoldiring. Hech kimga ushbu kodni bermang.</div>
-      </div>
-    </body>
-    </html>
-  `;
+function buildOtpEmailHtml({ purposeTitle, formattedCode, expiryMinutes = 10 }) {
+  return `<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${purposeTitle} — Humo Logistics</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #0B0F19; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #FFFFFF;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #0B0F19; padding: 36px 12px;">
+    <tr>
+      <td align="center">
+        <!-- Main Card Container -->
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width: 520px; background-color: #131B2E; border: 1px solid rgba(249, 115, 22, 0.35); border-radius: 20px; overflow: hidden; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);">
+          
+          <!-- Brand Accent Bar -->
+          <tr>
+            <td style="height: 5px; background: linear-gradient(90deg, #EA580C 0%, #F97316 50%, #FDBA74 100%);"></td>
+          </tr>
 
-  if (mailer) {
+          <!-- Header / Brand Section -->
+          <tr>
+            <td style="padding: 32px 32px 20px; text-align: center;">
+              <!-- Humo Phoenix Emblem -->
+              <div style="display: inline-block; margin-bottom: 14px;">
+                <div style="width: 56px; height: 56px; line-height: 56px; margin: 0 auto; background: rgba(249, 115, 22, 0.12); border: 1.5px solid rgba(249, 115, 22, 0.4); border-radius: 50%; font-size: 26px;">
+                  🦅
+                </div>
+              </div>
+              <div style="font-size: 24px; font-weight: 800; letter-spacing: 0.5px; margin: 0; color: #FFFFFF;">
+                Humo <span style="color: #F97316;">Logistics</span>
+              </div>
+              <div style="font-size: 13px; color: #94A3B8; margin-top: 6px; letter-spacing: 0.3px;">
+                Xalqaro va mahalliy yuk tashish tizimi
+              </div>
+            </td>
+          </tr>
+
+          <!-- Divider -->
+          <tr>
+            <td style="padding: 0 32px;">
+              <div style="height: 1px; background-color: #1E293B;"></div>
+            </td>
+          </tr>
+
+          <!-- Body Content -->
+          <tr>
+            <td style="padding: 28px 32px 20px; text-align: center;">
+              <h1 style="font-size: 20px; font-weight: 700; color: #FFFFFF; margin: 0 0 12px;">
+                ${purposeTitle}
+              </h1>
+              <p style="font-size: 14px; line-height: 1.6; color: #94A3B8; margin: 0 0 26px;">
+                Humo Logistics platformasidagi hisobingiz uchun bir martalik xavfsizlik kodi:
+              </p>
+
+              <!-- 6-Digit Code Box -->
+              <div style="background-color: #0B0F19; border: 2px dashed #F97316; border-radius: 14px; padding: 20px 16px; margin: 0 auto 26px; max-width: 380px;">
+                <div style="font-family: 'SF Mono', Consolas, 'Liberation Mono', Menlo, Courier, monospace; font-size: 38px; font-weight: 800; letter-spacing: 8px; color: #F97316; text-shadow: 0 2px 10px rgba(249, 115, 22, 0.3);">
+                  ${formattedCode}
+                </div>
+              </div>
+
+              <!-- Expiry & Security Notice -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: rgba(30, 41, 59, 0.6); border-radius: 10px; padding: 14px 16px; margin-bottom: 8px;">
+                <tr>
+                  <td style="font-size: 13px; line-height: 1.5; color: #CBD5E1; text-align: left;">
+                    ⏱️ <strong>Eslatma:</strong> Ushbu kod <strong>${expiryMinutes} daqiqa</strong> davomida amal qiladi. Agar bu so'rovni siz yubormagan bo'lsangiz, ushbu xatga e'tibor bermang.
+                  </td>
+                </tr>
+              </table>
+
+              <p style="font-size: 12px; color: #64748B; margin: 16px 0 0; line-height: 1.5;">
+                🔒 Xavfsizlik qoidasi: Humo Logistics ma'muriyati hech qachon sizdan ushbu kodni yoki parolingizni so'ramaydi.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 20px 32px 28px; background-color: #0D1322; border-top: 1px solid #1E293B; text-align: center;">
+              <p style="font-size: 12px; color: #64748B; margin: 0 0 6px;">
+                © ${new Date().getFullYear()} Humo Logistics platformasi. Barcha huquqlar himoyalangan.
+              </p>
+              <p style="font-size: 11px; color: #475569; margin: 0;">
+                O'zbekiston bo'yicha va xalqaro yuk tashuvchilar hamjamiyati
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+/**
+ * Builds plain-text fallback content so spam filters do not flag HTML-only emails
+ */
+function buildOtpEmailText({ purposeTitle, rawCode, expiryMinutes = 10 }) {
+  return `Humo Logistics — Xalqaro va mahalliy yuk tashish tizimi
+
+${purposeTitle}
+
+Sizning bir martalik tasdiqlash kodingiz: ${rawCode}
+
+Ushbu kod ${expiryMinutes} daqiqa davomida amal qiladi. Agar bu so'rovni siz yubormagan bo'lsangiz, ushbu xatga e'tibor bermang.
+
+Xavfsizlik eslatmasi: Humo Logistics xodimlari hech qachon sizdan ushbu kodni yoki parolingizni so'ramaydi.
+
+© ${new Date().getFullYear()} Humo Logistics. Barcha huquqlar himoyalangan.`;
+}
+
+/**
+ * Send 6-digit verification code or password reset code
+ * Official sender: "Humo Logistics" <process.env.GMAIL_USER>
+ */
+export async function sendOtpEmail(toEmail, code, purpose = "Ro'yxatdan o'tishni tasdiqlash kodi") {
+  const transportData = getTransporter();
+  const rawCode = code.toString().trim();
+  // Formatted code e.g. "482 910"
+  const formattedCode = rawCode.length === 6 ? `${rawCode.slice(0, 3)} ${rawCode.slice(3)}` : rawCode;
+
+  const purposeTitle = purpose.includes('tiklash')
+    ? 'Parolni tiklash kodi'
+    : (purpose.includes("o'tish") || purpose.includes('Ro‘yxatdan') || purpose.includes("Ro'yxatdan"))
+      ? "Ro'yxatdan o'tishni tasdiqlash kodi"
+      : purpose;
+
+  const subject = `Humo Logistics: ${purposeTitle} (${formattedCode})`;
+  const html = buildOtpEmailHtml({ purposeTitle, formattedCode, expiryMinutes: 10 });
+  const text = buildOtpEmailText({ purposeTitle, rawCode, expiryMinutes: 10 });
+
+  const fromEmail = process.env.GMAIL_USER || process.env.EMAIL_USER || 'noreply@humologistics.uz';
+  const fromHeader = `"Humo Logistics" <${fromEmail}>`;
+
+  if (transportData?.mailer) {
     try {
-      const info = await mailer.sendMail({
-        from: `"Humo Logistics" <${process.env.GMAIL_USER || process.env.EMAIL_USER}>`,
+      const info = await transportData.mailer.sendMail({
+        from: fromHeader,
         to: toEmail,
         subject,
+        text,
         html
       });
-      console.log(`[EmailService] Email sent successfully to ${toEmail}: messageId=${info.messageId}`);
-      return { success: true, mode: 'smtp' };
+      console.log(`[EmailService] Official Humo Logistics email sent successfully to ${toEmail}: messageId=${info.messageId}`);
+      return { success: true, mode: 'smtp', messageId: info.messageId };
     } catch (err) {
       console.error(`[EmailService] Failed to send email via SMTP to ${toEmail}:`, err.message);
-      console.log(`[EmailService] Fallback to console log. OTP Code for ${toEmail}: [${code}]`);
-      return { success: true, mode: 'fallback', code };
+      console.log(`[EmailService] Fallback console notice: OTP Code for ${toEmail}: [${formattedCode}]`);
+      return { success: true, mode: 'fallback', code: rawCode };
     }
   } else {
     console.log(`=======================================================`);
-    console.log(`[EmailService: SIMULATED GMAIL OTP]`);
+    console.log(`[EmailService: OFFICIAL HUMO LOGISTICS GMAIL OTP]`);
+    console.log(`From: ${fromHeader}`);
     console.log(`To: ${toEmail}`);
     console.log(`Subject: ${subject}`);
-    console.log(`Verification Code: [ ${code} ] (Expires in 10 minutes)`);
-    console.log(`Note: Configure GMAIL_USER and GMAIL_APP_PASSWORD in .env for live email delivery.`);
+    console.log(`Verification Code: [ ${formattedCode} ] (Expires in 10 minutes)`);
+    console.log(`Note: Configure GMAIL_USER and GMAIL_APP_PASSWORD in environment for live SMTP delivery.`);
     console.log(`=======================================================`);
-    return { success: true, mode: 'simulated', code };
+    return { success: true, mode: 'simulated', code: rawCode };
   }
 }
 
+/**
+ * Send Registration Verification Email
+ */
+export async function sendRegistrationOtpEmail(toEmail, code) {
+  return sendOtpEmail(toEmail, code, "Ro'yxatdan o'tishni tasdiqlash kodi");
+}
+
+/**
+ * Send Password Reset Email
+ */
 export async function sendPasswordResetEmail(toEmail, code) {
-  return sendOtpEmail(toEmail, code, "Parolni qayta tiklash kodi");
+  return sendOtpEmail(toEmail, code, "Parolni tiklash kodi");
 }

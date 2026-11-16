@@ -333,6 +333,7 @@ export async function initDatabase() {
         identifier TEXT NOT NULL,
         code TEXT NOT NULL,
         type TEXT NOT NULL DEFAULT 'forgot_password',
+        attempts INTEGER NOT NULL DEFAULT 0,
         expires_at TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
@@ -361,6 +362,7 @@ export async function initDatabase() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS free_contacts_remaining INTEGER NOT NULL DEFAULT 117;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_id INTEGER;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMPTZ;
+      ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
     `);
     console.log('Supabase PostgreSQL database initialized successfully.');
   } else {
@@ -577,6 +579,7 @@ export async function initDatabase() {
         identifier TEXT NOT NULL,
         code TEXT NOT NULL,
         type TEXT NOT NULL DEFAULT 'forgot_password',
+        attempts INTEGER NOT NULL DEFAULT 0,
         expires_at TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
@@ -654,6 +657,9 @@ export async function initDatabase() {
     try {
       sqliteDb.exec('UPDATE users SET free_contacts_remaining = 117 WHERE free_contacts_remaining IS NULL;');
     } catch (e) { }
+    try {
+      sqliteDb.exec('ALTER TABLE otp_codes ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;');
+    } catch (e) { /* Column already exists */ }
     try {
       sqliteDb.exec(`
         CREATE TABLE IF NOT EXISTS payment_settings (

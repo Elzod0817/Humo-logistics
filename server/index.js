@@ -192,7 +192,11 @@ app.use((err, req, res, next) => {
     });
   }
   console.error('Server error:', err);
-  res.status(500).json({ error: 'server_error', message: 'Internal server error' });
+  const status = (err.status && err.status >= 400 && err.status < 600) ? err.status : 500;
+  res.status(status).json({
+    error: err.code || err.brevoCode || 'server_error',
+    message: err.message || 'Internal server error'
+  });
 });
 
 let serverInstance = null;

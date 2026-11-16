@@ -180,9 +180,9 @@ async function sendViaBrevo(brevoApiKey, { toEmail, subject, html, text }) {
   const response = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
     headers: {
-      'accept': 'application/json',
       'api-key': brevoApiKey,
-      'content-type': 'application/json'
+      'Content-Type': 'application/json',
+      'accept': 'application/json'
     },
     body: JSON.stringify(payload)
   });
@@ -190,9 +190,12 @@ async function sendViaBrevo(brevoApiKey, { toEmail, subject, html, text }) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    const errorMsg = data.message || `Brevo API HTTP ${response.status}`;
-    console.error(`[EmailService:Brevo] Delivery failed:`, data);
-    throw new Error(errorMsg);
+    const errorMsg = data.message || (data.code ? `[${data.code}] ${data.message || ''}` : `Brevo API HTTP ${response.status}`);
+    console.error(`[EmailService:Brevo] Delivery failed (HTTP ${response.status}):`, data);
+    const err = new Error(errorMsg);
+    err.brevoCode = data.code;
+    err.status = response.status >= 400 && response.status < 600 ? response.status : 500;
+    throw err;
   }
 
   console.log(`[EmailService:Brevo] Email delivered successfully to ${toEmail}: messageId=${data.messageId}`);
@@ -230,8 +233,10 @@ async function sendViaResend(resendApiKey, { toEmail, subject, html, text }) {
 
   if (!response.ok) {
     const errorMsg = data.message || `Resend API HTTP ${response.status}`;
-    console.error(`[EmailService:Resend] Delivery failed:`, data);
-    throw new Error(errorMsg);
+    console.error(`[EmailService:Resend] Delivery failed (HTTP ${response.status}):`, data);
+    const err = new Error(errorMsg);
+    err.status = response.status >= 400 && response.status < 600 ? response.status : 500;
+    throw err;
   }
 
   console.log(`[EmailService:Resend] Email delivered successfully to ${toEmail}: id=${data.id}`);
@@ -242,7 +247,7 @@ async function sendViaResend(resendApiKey, { toEmail, subject, html, text }) {
  * Send 6-digit verification code or password reset code
  * Primary: Brevo HTTPS REST API
  * Secondary: Resend HTTPS REST API
- * Fallback: Safe simulation with console log (prevents blocking users)
+ * Strictly surfaces real API errors if delivery fails
  */
 export async function sendOtpEmail(toEmail, code, purpose = "Ro'yxatdan o'tishni tasdiqlash kodi") {
   const rawCode = code.toString().trim();
@@ -261,46 +266,36 @@ export async function sendOtpEmail(toEmail, code, purpose = "Ro'yxatdan o'tishni
   const brevoKey = (process.env.BREVO_API_KEY || '').trim();
   const resendKey = (process.env.RESEND_API_KEY || '').trim();
 
-  // 1. Try Brevo Transactional Email API (HTTPS port 443)
+  // 1. Strictly use Brevo Transactional Email API (HTTPS port 443)
   if (brevoKey) {
     try {
       return await sendViaBrevo(brevoKey, { toEmail, subject, html, text });
     } catch (brevoErr) {
-      console.warn(`[EmailService] Brevo attempt failed, checking fallbacks:`, brevoErr.message);
-      // Fall through to Resend or fallback
+      console.error(`[EmailService] Brevo delivery failed:`, brevoErr.message);
+      if (resendKey) {
+        try {
+          return await sendViaResend(resendKey, { toEmail, subject, html, text });
+        } catch (resendErr) {
+          console.error(`[EmailService] Resend fallback also failed:`, resendErr.message);
+          const combinedErr = new Error(`Email yetkazib berishda xatolik: Brevo (${brevoErr.message}), Resend (${resendErr.message})`);
+          combinedErr.status = brevoErr.status || 500;
+          throw combinedErr;
+        }
+      }
+      // Never pretend the email was sent if Brevo rejected it!
+      throw brevoErr;
     }
   }
 
-  // 2. Try Resend API (HTTPS port 443)
+  // 2. Try Resend if configured
   if (resendKey) {
-    try {
-      return await sendViaResend(resendKey, { toEmail, subject, html, text });
-    } catch (resendErr) {
-      console.warn(`[EmailService] Resend attempt failed:`, resendErr.message);
-      // Fall through to fallback
-    }
+    return await sendViaResend(resendKey, { toEmail, subject, html, text });
   }
 
-  // 3. Graceful Simulation Fallback:
-  // Neither API key is configured yet. Instead of failing with an ETIMEDOUT error or blocking registration,
-  // log the OTP and return simulated success so users can complete registration/reset smoothly!
-  const senderEmail = (process.env.SENDER_EMAIL || process.env.GMAIL_USER || 'no-reply@humologistics.uz').trim();
-  console.log(`=======================================================`);
-  console.log(`[EmailService: SIMULATED HUMO LOGISTICS OTP]`);
-  console.log(`From: "Humo Logistics" <${senderEmail}>`);
-  console.log(`To: ${toEmail}`);
-  console.log(`Subject: ${subject}`);
-  console.log(`Verification Code: [ ${formattedCode} ] (Valid for 10 minutes)`);
-  console.log(`Master Codes for Testing: 123456 or 777777`);
-  console.log(`Note: Configure BREVO_API_KEY or RESEND_API_KEY in Render environment variables for live delivery.`);
-  console.log(`=======================================================`);
-
-  return {
-    success: true,
-    mode: 'simulated',
-    code: rawCode,
-    message: 'Tasdiqlash kodi tayyorlandi (Test uchun master kod: 123456 yoki 777777)'
-  };
+  // 3. If neither key is configured, surface error
+  const err = new Error("Email xizmati sozlanmagan. Iltimos, Render environment'da BREVO_API_KEY va SENDER_EMAIL ni sozlang.");
+  err.status = 500;
+  throw err;
 }
 
 /**

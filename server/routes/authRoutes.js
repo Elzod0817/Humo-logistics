@@ -83,20 +83,25 @@ authRouter.post('/register', async (req, res) => {
       });
     }
 
-    // If OTP provided, verify it before creating account.
-    // If not provided (direct registration with phone + password), allow immediate account creation without blocking users.
-    let isVerified = false;
-    if (otp) {
-      const otpTarget = (email && email.includes('@')) ? normalizedEmail : normalizedPhone;
-      const validation = await validateAndConsumeOtp(otpTarget, otp);
-      if (!validation.valid) {
-        return res.status(validation.status || 400).json({ error: validation.error, message: validation.message });
-      }
-      isVerified = true;
-    } else {
-      // Direct registration without dead-ends
-      isVerified = true;
+    // Strict OTP Verification for Registration
+    const otpTarget = (email && email.includes('@')) ? normalizedEmail : normalizedPhone;
+    if (!otp) {
+      return res.status(400).json({
+        success: false,
+        error: 'missing_otp',
+        message: "Tasdiqlash kodi (OTP) kiritilishi shart"
+      });
     }
+
+    const validation = await validateAndConsumeOtp(otpTarget, otp);
+    if (!validation.valid) {
+      return res.status(validation.status || 400).json({
+        success: false,
+        error: validation.error || 'invalid_code',
+        message: validation.message || "Noto'g'ri yoki muddati o'tgan tasdiqlash kodi"
+      });
+    }
+    const isVerified = true;
 
     const id = crypto.randomUUID();
     const passwordHash = hashPassword(password);
@@ -248,10 +253,18 @@ async function createOtpRecord(identifier, code, type = 'verification') {
   return { id, code, expiresAt };
 }
 
-// Helper to validate and consume OTP with 5 max attempts
+// Helper to validate and consume OTP with 5 max attempts (Strict verification - NO master codes or bypasses)
 async function validateAndConsumeOtp(identifier, inputOtp) {
   const codeStr = (inputOtp || '').toString().trim();
-  const isMasterCode = (codeStr === '777777' || codeStr === '123456');
+
+  if (!codeStr || codeStr.length < 6) {
+    return {
+      valid: false,
+      status: 400,
+      error: 'invalid_code',
+      message: "Noto'g'ri yoki muddati o'tgan tasdiqlash kodi"
+    };
+  }
 
   const now = new Date().toISOString();
   const record = await db.queryOne(
@@ -259,53 +272,50 @@ async function validateAndConsumeOtp(identifier, inputOtp) {
     [identifier, now]
   );
 
-  if (!record && !isMasterCode) {
+  if (!record) {
     return {
       valid: false,
       status: 400,
       error: 'invalid_code',
-      message: 'Tasdiqlash kodi topilmadi yoki muddati tugagan. Iltimos, yangi kod so‘rang'
+      message: "Noto'g'ri yoki muddati o'tgan tasdiqlash kodi"
     };
   }
 
-  if (record) {
-    const attempts = record.attempts || 0;
-    if (attempts >= MAX_OTP_ATTEMPTS) {
+  const attempts = record.attempts || 0;
+  if (attempts >= MAX_OTP_ATTEMPTS) {
+    await db.query('DELETE FROM otp_codes WHERE id = $1', [record.id]);
+    return {
+      valid: false,
+      status: 400,
+      error: 'max_attempts_exceeded',
+      message: 'Urinishlar soni tugadi (maksimal 5 ta xato). Yangi kod so‘rang'
+    };
+  }
+
+  if (record.code !== codeStr) {
+    const nextAttempts = attempts + 1;
+    if (nextAttempts >= MAX_OTP_ATTEMPTS) {
       await db.query('DELETE FROM otp_codes WHERE id = $1', [record.id]);
       return {
         valid: false,
         status: 400,
         error: 'max_attempts_exceeded',
-        message: 'Urinishlar soni tugadi (maksimal 5 ta xato). Yangi kod so‘rang'
+        message: 'Urinishlar soni tugadi (5 ta xato urinish). Yangi kod so‘rang'
+      };
+    } else {
+      await db.query('UPDATE otp_codes SET attempts = $1 WHERE id = $2', [nextAttempts, record.id]);
+      const remaining = MAX_OTP_ATTEMPTS - nextAttempts;
+      return {
+        valid: false,
+        status: 400,
+        error: 'invalid_code',
+        message: `Kiritilgan kod noto‘g‘ri. Qolgan urinishlar: ${remaining}`
       };
     }
-
-    if (record.code !== codeStr && !isMasterCode) {
-      const nextAttempts = attempts + 1;
-      if (nextAttempts >= MAX_OTP_ATTEMPTS) {
-        await db.query('DELETE FROM otp_codes WHERE id = $1', [record.id]);
-        return {
-          valid: false,
-          status: 400,
-          error: 'max_attempts_exceeded',
-          message: 'Urinishlar soni tugadi (5 ta xato urinish). Yangi kod so‘rang'
-        };
-      } else {
-        await db.query('UPDATE otp_codes SET attempts = $1 WHERE id = $2', [nextAttempts, record.id]);
-        const remaining = MAX_OTP_ATTEMPTS - nextAttempts;
-        return {
-          valid: false,
-          status: 400,
-          error: 'invalid_code',
-          message: `Kiritilgan kod noto‘g‘ri. Qolgan urinishlar: ${remaining}`
-        };
-      }
-    }
-
-    // Code matched! Clean up used OTP
-    await db.query('DELETE FROM otp_codes WHERE id = $1', [record.id]);
   }
 
+  // Code matched strictly! Clean up used OTP
+  await db.query('DELETE FROM otp_codes WHERE id = $1', [record.id]);
   return { valid: true };
 }
 
@@ -379,7 +389,6 @@ authRouter.post('/send-otp', async (req, res) => {
         message: emailResult.message || '6 xonali tasdiqlash kodi emailingizga yuborildi',
         identifier: targetKey,
         channel: emailResult.mode || 'email',
-        direct_register_available: true,
         telegram_bot_url: telegramBotUrl,
         cooldown: OTP_COOLDOWN_SECONDS,
         expires_in: OTP_EXPIRY_MINUTES * 60
@@ -391,7 +400,6 @@ authRouter.post('/send-otp', async (req, res) => {
         message: 'Tasdiqlash kodi tayyorlandi',
         identifier: normPhone,
         channel: 'phone',
-        direct_register_available: true,
         code: process.env.NODE_ENV !== 'production' ? code : undefined,
         telegram_bot_url: telegramBotUrl,
         cooldown: OTP_COOLDOWN_SECONDS,
@@ -400,10 +408,12 @@ authRouter.post('/send-otp', async (req, res) => {
     }
   } catch (err) {
     console.error('Error sending OTP:', err);
-    res.status(500).json({
-      error: 'server_error',
-      message: `Tasdiqlash kodini yuborishda server xatosi: ${err.message}`,
-      details: { code: err.code, name: err.name }
+    const statusCode = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
+    res.status(statusCode).json({
+      success: false,
+      error: err.brevoCode || err.code || 'email_delivery_failed',
+      message: err.message || 'Tasdiqlash kodini yuborishda server xatosi',
+      details: { code: err.brevoCode || err.code, name: err.name }
     });
   }
 });
@@ -458,7 +468,6 @@ authRouter.post('/resend-otp', async (req, res) => {
         message: emailResult.message || 'Yangi tasdiqlash kodi emailingizga yuborildi',
         identifier: targetKey,
         channel: emailResult.mode || 'email',
-        direct_register_available: true,
         telegram_bot_url: telegramBotUrl,
         cooldown: OTP_COOLDOWN_SECONDS,
         expires_in: OTP_EXPIRY_MINUTES * 60
@@ -470,7 +479,6 @@ authRouter.post('/resend-otp', async (req, res) => {
         message: 'Yangi tasdiqlash kodi tayyorlandi',
         identifier: normPhone,
         channel: 'phone',
-        direct_register_available: true,
         code: process.env.NODE_ENV !== 'production' ? code : undefined,
         telegram_bot_url: telegramBotUrl,
         cooldown: OTP_COOLDOWN_SECONDS,
@@ -479,88 +487,134 @@ authRouter.post('/resend-otp', async (req, res) => {
     }
   } catch (err) {
     console.error('Error in resend-otp:', err);
-    res.status(500).json({
-      error: 'server_error',
-      message: `Kodni qayta yuborishda server xatosi: ${err.message}`,
-      details: { code: err.code, name: err.name }
+    const statusCode = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
+    res.status(statusCode).json({
+      success: false,
+      error: err.brevoCode || err.code || 'email_delivery_failed',
+      message: err.message || 'Kodni qayta yuborishda server xatosi',
+      details: { code: err.brevoCode || err.code, name: err.name }
     });
   }
 });
 
-// POST /api/auth/verify-otp - Verifies 6-digit OTP code with attempt tracking
+// POST /api/auth/verify-otp - Strict verification of 6-digit OTP code & genuine user activation
 authRouter.post('/verify-otp', async (req, res) => {
   try {
-    const { phone, email, identifier, otp } = req.body;
+    const { phone, email, identifier, otp, code, password, name, first_name, last_name, role } = req.body;
     const rawTarget = (email || phone || identifier || '').toString().trim().replace(/\s+/g, '');
-    const inputOtp = (otp || '').toString().trim();
+    const inputOtp = (code || otp || '').toString().trim();
 
     if (!rawTarget || !inputOtp || inputOtp.length < 6) {
-      return res.status(400).json({ error: 'invalid_otp', message: '6 xonali tasdiqlash kodini kiriting' });
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_otp',
+        message: "Noto'g'ri yoki muddati o'tgan tasdiqlash kodi"
+      });
     }
 
     const isEmail = rawTarget.includes('@');
     const normPhone = !isEmail ? normalizePhone(rawTarget) : null;
     const targetKey = isEmail ? rawTarget.toLowerCase() : normPhone;
 
-    const validation = await validateAndConsumeOtp(targetKey, inputOtp);
-    if (!validation.valid) {
-      return res.status(validation.status || 400).json({
-        error: validation.error,
-        message: validation.message
+    if (!targetKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_identifier',
+        message: 'Noto‘g‘ri telefon raqam yoki email'
       });
     }
 
-    // Find or create user
+    const validation = await validateAndConsumeOtp(targetKey, inputOtp);
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: validation.error || 'invalid_code',
+        message: validation.message || "Noto'g'ri yoki muddati o'tgan tasdiqlash kodi"
+      });
+    }
+
+    // Exact 6-digit code matched strictly!
+    // Find or create/activate user in DB
     let user = null;
     if (isEmail) {
-      user = await db.queryOne('SELECT * FROM users WHERE email = $1', [targetKey]);
+      user = await db.queryOne('SELECT * FROM users WHERE email = $1 LIMIT 1', [targetKey]);
     } else {
       const phoneDigits = normPhone.replace(/\D/g, '');
       const syntheticEmail = `${phoneDigits}@humologistics.uz`;
+      const barePhone = normPhone.replace(/^\+/, '');
       user = await db.queryOne(
-        'SELECT * FROM users WHERE phone = $1 OR phone = $2 OR email = $3',
-        [normPhone, phoneDigits, syntheticEmail]
+        'SELECT * FROM users WHERE phone = $1 OR phone = $2 OR email = $3 LIMIT 1',
+        [normPhone, barePhone, syntheticEmail]
       );
     }
 
-    if (user) {
-      // Mark as verified
+    const now = new Date().toISOString();
+
+    if (!user) {
+      // Create user genuinely in DB so they are registered and saved
+      const newId = crypto.randomUUID();
+      const userPassword = password || `Humo_${crypto.randomBytes(6).toString('hex')}`;
+      const passwordHash = hashPassword(userPassword);
+      const userFirstName = (first_name || name || '').trim() || (isEmail ? targetKey.split('@')[0] : 'Foydalanuvchi');
+      const userLastName = (last_name || '').trim() || null;
+      const userRole = role && ['carrier', 'shipper', 'dispatcher', 'admin', 'user'].includes(role) ? role : 'carrier';
+      const userEmail = isEmail ? targetKey : `${normPhone.replace(/\D/g, '')}@humologistics.uz`;
+      const userPhone = normPhone || null;
+
+      await db.query(`
+        INSERT INTO users (
+          id, email, password_hash, first_name, last_name, phone, role,
+          profile_completed, is_verified, is_banned, free_contacts_remaining,
+          plan_id, plan_expires_at, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7,
+          1, TRUE, FALSE, 117,
+          NULL, NULL, $8, $9
+        )
+      `, [newId, userEmail, passwordHash, userFirstName, userLastName, userPhone, userRole, now, now]);
+
+      user = await db.queryOne('SELECT * FROM users WHERE id = $1', [newId]);
+    } else {
+      // User exists - activate and mark as verified
       if (!user.is_verified) {
-        await db.query('UPDATE users SET is_verified = TRUE WHERE id = $1', [user.id]);
+        await db.query('UPDATE users SET is_verified = TRUE, updated_at = $1 WHERE id = $2', [now, user.id]);
         user.is_verified = true;
       }
-
-      const { token } = await createSession(user.id);
-      res.cookie('humo_session', token, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000 });
-
-      return res.json({
-        success: true,
-        token,
-        user: {
-          id: user.id,
-          email: user.email,
-          first_name: user.first_name,
-          last_name: user.last_name,
-          phone: user.phone,
-          role: user.role,
-          profile_completed: user.profile_completed,
-          is_verified: user.is_verified,
-          free_contacts_remaining: user.free_contacts_remaining ?? 117,
-          created_at: user.created_at
-        }
-      });
-    } else {
-      // Not yet registered, return verified status so registration form can proceed
-      return res.json({
-        success: true,
-        verified: true,
-        identifier: targetKey,
-        message: 'Kod muvaffaqiyatli tasdiqlandi'
-      });
     }
+
+    // Generate real JWT token
+    const { token } = await createSession(user.id);
+    res.cookie('humo_session', token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000
+    });
+
+    return res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        phone: user.phone,
+        role: user.role,
+        profile_completed: user.profile_completed,
+        is_verified: true,
+        free_contacts_remaining: user.free_contacts_remaining ?? 117,
+        plan_id: user.plan_id || null,
+        plan_expires_at: user.plan_expires_at || null,
+        created_at: user.created_at
+      }
+    });
   } catch (err) {
     console.error('Error verifying OTP:', err);
-    res.status(500).json({ error: 'server_error', message: 'Kodni tekshirishda xatolik yuz berdi' });
+    res.status(500).json({
+      success: false,
+      error: 'server_error',
+      message: 'Kodni tekshirishda xatolik yuz berdi'
+    });
   }
 });
 

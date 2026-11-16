@@ -129,6 +129,7 @@ app.get('/api/stats', async (req, res) => {
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 app.use('/api/auth/forgot-password', authLimiter);
+app.use('/api/auth/verify-reset-otp', authLimiter);
 app.use('/api/auth/reset-password', authLimiter);
 
 // 2. AI endpoints: max 25 requests per hour per user/IP

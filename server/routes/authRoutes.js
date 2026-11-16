@@ -252,7 +252,7 @@ async function validateAndConsumeOtp(identifier, inputOtp) {
       valid: false,
       status: 400,
       error: 'invalid_code',
-      message: "Noto'g'ri yoki muddati o'tgan tasdiqlash kodi"
+      message: "Noto'g'ri tasdiqlash kodi kiritildi. Qaytadan tekshiring."
     };
   }
 
@@ -267,7 +267,7 @@ async function validateAndConsumeOtp(identifier, inputOtp) {
       valid: false,
       status: 400,
       error: 'invalid_code',
-      message: "Noto'g'ri yoki muddati o'tgan tasdiqlash kodi"
+      message: "Noto'g'ri tasdiqlash kodi kiritildi. Qaytadan tekshiring."
     };
   }
 
@@ -299,13 +299,78 @@ async function validateAndConsumeOtp(identifier, inputOtp) {
         valid: false,
         status: 400,
         error: 'invalid_code',
-        message: `Kiritilgan kod noto‘g‘ri. Qolgan urinishlar: ${remaining}`
+        message: `Noto'g'ri tasdiqlash kodi kiritildi. Qaytadan tekshiring. (Qolgan urinishlar: ${remaining})`
       };
     }
   }
 
   // Code matched strictly! Clean up used OTP
   await db.query('DELETE FROM otp_codes WHERE id = $1', [record.id]);
+  return { valid: true };
+}
+
+// Helper to validate OTP WITHOUT deleting it (used for 2-step verification, e.g. verify-reset-otp)
+async function validateOtpReadOnly(identifier, inputOtp) {
+  const codeStr = (inputOtp || '').toString().trim();
+
+  if (!codeStr || codeStr.length < 6) {
+    return {
+      valid: false,
+      status: 400,
+      error: 'invalid_code',
+      message: "Noto'g'ri tasdiqlash kodi kiritildi. Qaytadan tekshiring."
+    };
+  }
+
+  const now = new Date().toISOString();
+  const record = await db.queryOne(
+    'SELECT * FROM otp_codes WHERE identifier = $1 AND expires_at > $2 ORDER BY created_at DESC LIMIT 1',
+    [identifier, now]
+  );
+
+  if (!record) {
+    return {
+      valid: false,
+      status: 400,
+      error: 'invalid_code',
+      message: "Noto'g'ri tasdiqlash kodi kiritildi. Qaytadan tekshiring."
+    };
+  }
+
+  const attempts = record.attempts || 0;
+  if (attempts >= MAX_OTP_ATTEMPTS) {
+    await db.query('DELETE FROM otp_codes WHERE id = $1', [record.id]);
+    return {
+      valid: false,
+      status: 400,
+      error: 'max_attempts_exceeded',
+      message: 'Urinishlar soni tugadi (maksimal 5 ta xato). Yangi kod so‘rang'
+    };
+  }
+
+  if (record.code !== codeStr) {
+    const nextAttempts = attempts + 1;
+    if (nextAttempts >= MAX_OTP_ATTEMPTS) {
+      await db.query('DELETE FROM otp_codes WHERE id = $1', [record.id]);
+      return {
+        valid: false,
+        status: 400,
+        error: 'max_attempts_exceeded',
+        message: 'Urinishlar soni tugadi (5 ta xato urinish). Yangi kod so‘rang'
+      };
+    } else {
+      await db.query('UPDATE otp_codes SET attempts = $1 WHERE id = $2', [nextAttempts, record.id]);
+      const remaining = MAX_OTP_ATTEMPTS - nextAttempts;
+      return {
+        valid: false,
+        status: 400,
+        error: 'invalid_code',
+        message: `Noto'g'ri tasdiqlash kodi kiritildi. Qaytadan tekshiring. (Qolgan urinishlar: ${remaining})`
+      };
+    }
+  }
+
+  // Code matched strictly! Do NOT delete so /reset-password can consume it in Step 2.
   return { valid: true };
 }
 
@@ -498,7 +563,7 @@ authRouter.post('/verify-otp', async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'invalid_otp',
-        message: "Noto'g'ri yoki muddati o'tgan tasdiqlash kodi"
+        message: "Noto'g'ri tasdiqlash kodi kiritildi. Qaytadan tekshiring."
       });
     }
 
@@ -519,7 +584,7 @@ authRouter.post('/verify-otp', async (req, res) => {
       return res.status(400).json({
         success: false,
         error: validation.error || 'invalid_code',
-        message: validation.message || "Noto'g'ri yoki muddati o'tgan tasdiqlash kodi"
+        message: validation.message || "Noto'g'ri tasdiqlash kodi kiritildi. Qaytadan tekshiring."
       });
     }
 
@@ -697,6 +762,57 @@ authRouter.post('/forgot-password', async (req, res) => {
       error: 'server_error',
       message: `Parolni tiklashda server xatosi: ${err.message}`,
       details: { code: err.code, name: err.name }
+    });
+  }
+});
+
+// POST /api/auth/verify-reset-otp - Step 1 of Password Reset: verifies OTP without deleting it
+authRouter.post('/verify-reset-otp', async (req, res) => {
+  try {
+    const { identifier, otp, code } = req.body;
+    const rawTarget = (identifier || '').toString().trim().replace(/\s+/g, '');
+    const inputOtp = (code || otp || '').toString().trim();
+
+    if (!rawTarget || !inputOtp || inputOtp.length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_code',
+        message: "Noto'g'ri tasdiqlash kodi kiritildi. Qaytadan tekshiring."
+      });
+    }
+
+    const isEmail = rawTarget.includes('@');
+    const normPhone = !isEmail ? normalizePhone(rawTarget) : null;
+    const targetKey = isEmail ? rawTarget.toLowerCase() : normPhone;
+
+    if (!targetKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_identifier',
+        message: 'Noto‘g‘ri telefon raqam yoki email'
+      });
+    }
+
+    const validation = await validateOtpReadOnly(targetKey, inputOtp);
+    if (!validation.valid) {
+      return res.status(validation.status || 400).json({
+        success: false,
+        error: validation.error,
+        message: validation.message || "Noto'g'ri tasdiqlash kodi kiritildi. Qaytadan tekshiring."
+      });
+    }
+
+    return res.json({
+      success: true,
+      valid: true,
+      message: "Tasdiqlash kodi to'g'ri. Endi yangi parolingizni kiriting."
+    });
+  } catch (err) {
+    console.error('Error during verify-reset-otp:', err);
+    res.status(500).json({
+      success: false,
+      error: 'server_error',
+      message: 'Kodni tekshirishda xatolik yuz berdi'
     });
   }
 });

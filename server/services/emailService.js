@@ -33,7 +33,8 @@ export function getEmailStatus() {
   const user = (process.env.GMAIL_USER || process.env.EMAIL_USER || '').trim();
   const rawPass = (process.env.GMAIL_APP_PASSWORD || process.env.EMAIL_PASS || '').trim();
   const pass = rawPass.replace(/\s+/g, '');
-  const configured = Boolean(user && pass);
+  const resendKey = (process.env.RESEND_API_KEY || '').trim();
+  const configured = Boolean((user && pass) || resendKey);
 
   let maskedUser = 'missing';
   if (user) {
@@ -43,8 +44,10 @@ export function getEmailStatus() {
 
   return {
     configured,
-    user: maskedUser,
-    has_password: Boolean(pass),
+    active_channel: resendKey ? 'resend_https' : (user && pass ? 'gmail_smtp' : 'none'),
+    gmail_user: maskedUser,
+    has_gmail_password: Boolean(pass),
+    has_resend_api_key: Boolean(resendKey),
     smtp_host: 'smtp.gmail.com',
     port: 465,
     secure: true
@@ -190,6 +193,37 @@ export async function sendOtpEmail(toEmail, code, purpose = "Ro'yxatdan o'tishni
   const fromEmail = transportData?.user || process.env.GMAIL_USER || process.env.EMAIL_USER || 'noreply@humologistics.uz';
   const fromHeader = `"Humo Logistics" <${fromEmail}>`;
 
+  // 1. If RESEND_API_KEY is configured, send via Resend HTTPS REST API (bypasses cloud SMTP port blocks)
+  const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
+  if (resendApiKey) {
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${resendApiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: 'Humo Logistics <onboarding@resend.dev>',
+          to: [toEmail],
+          subject,
+          html,
+          text
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        console.log(`[EmailService] Sent email via Resend HTTPS API to ${toEmail}: id=${data.id}`);
+        return { success: true, mode: 'resend_https', messageId: data.id };
+      } else {
+        console.warn(`[EmailService] Resend API error:`, data);
+      }
+    } catch (httpErr) {
+      console.error(`[EmailService] Resend HTTPS call failed:`, httpErr.message);
+    }
+  }
+
+  // 2. Send via Gmail SMTP
   if (transportData?.mailer) {
     try {
       const info = await transportData.mailer.sendMail({
@@ -208,10 +242,16 @@ export async function sendOtpEmail(toEmail, code, purpose = "Ro'yxatdan o'tishni
         response: err.response,
         message: err.message
       });
+
+      const isTimeout = err.code === 'ETIMEDOUT' || err.message?.includes('timeout');
+      const errorMsg = isTimeout
+        ? `Gmail SMTP ulanish vaqti tugadi (ETIMEDOUT). Render.com bepul hostingida 465/587 portlar cheklangan bo‘lishi mumkin. Telefon orqali ro‘yxatdan o‘tish yoki RESEND_API_KEY qo‘shish tavsiya etiladi.`
+        : `Gmail SMTP orqali email yuborishda xatolik: ${err.message} (${err.code || 'UNKNOWN'})`;
+
       return {
         success: false,
         error: 'smtp_error',
-        message: `Gmail SMTP orqali email yuborishda xatolik: ${err.message} (${err.code || 'UNKNOWN'})`,
+        message: errorMsg,
         details: { code: err.code, response: err.response }
       };
     }

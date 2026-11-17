@@ -86,11 +86,9 @@ function buildOtpEmailHtml({ purposeTitle, formattedCode, expiryMinutes = 10 }) 
           <!-- Header / Brand Section -->
           <tr>
             <td style="padding: 32px 32px 20px; text-align: center;">
-              <!-- Humo Phoenix Emblem -->
+              <!-- Humo Official Logo -->
               <div style="display: inline-block; margin-bottom: 14px;">
-                <div style="width: 56px; height: 56px; line-height: 56px; margin: 0 auto; background: rgba(249, 115, 22, 0.12); border: 1.5px solid rgba(249, 115, 22, 0.4); border-radius: 50%; font-size: 26px;">
-                  🦅
-                </div>
+                <img src="https://humo-logistics.onrender.com/public/logo.png" alt="Humo Logistics" width="68" height="68" style="border-radius: 50%; object-fit: cover; display: block; margin: 0 auto;" />
               </div>
               <div style="font-size: 24px; font-weight: 800; letter-spacing: 0.5px; margin: 0; color: #FFFFFF;">
                 Humo <span style="color: #F97316;">Logistics</span>

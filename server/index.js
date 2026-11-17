@@ -67,6 +67,8 @@ app.use(authMiddleware);
 
 // Serve static frontend assets
 app.use(express.static(publicPath));
+app.use('/public', express.static(publicPath));
+app.use('/public', express.static(path.resolve(__dirname, 'public')));
 
 // Production Health Endpoint for Render.com zero-downtime health probes
 app.get('/api/health', async (req, res) => {

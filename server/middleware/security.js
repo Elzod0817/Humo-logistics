@@ -134,10 +134,10 @@ export function createRateLimiter({
   return limiter;
 }
 
-// 1. Auth endpoints rate limiter: max 10 attempts per 15 minutes per IP
+// 1. Auth endpoints rate limiter: max 30 attempts per 15 minutes per IP
 export const authLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 30,
   message: "Xavfsizlik maqsadida kirish cheklandi: juda ko'p urinishlar qilindi. Iltimos, 15 daqiqadan so'ng qayta urinib ko'ring.",
   keyGenerator: (req) => {
     const ip = req.headers['x-forwarded-for'] || req.ip || req.socket?.remoteAddress || '127.0.0.1';

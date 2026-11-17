@@ -10,6 +10,11 @@ const OTP_COOLDOWN_SECONDS = 60;
 const OTP_EXPIRY_MINUTES = 10;
 const MAX_OTP_ATTEMPTS = 5;
 
+// In-memory pending registrations awaiting 6-digit OTP verification
+// Key: lowercase email
+// Value: { name, phone, email, password, role, code, expiresAt, attempts, createdAt }
+export const pendingRegistrations = new Map();
+
 export function normalizePhone(input) {
   if (!input || typeof input !== 'string') return null;
   const stripped = input.replace(/\s+/g, '');
@@ -56,55 +61,45 @@ authRouter.post('/register', async (req, res) => {
   try {
     const { email, phone, password, name, first_name, last_name, role } = req.body;
 
-    const rawPhone = (phone || (email && !email.includes('@') ? email : null) || '').toString().trim().replace(/\s+/g, '');
-    const normalizedPhone = rawPhone ? normalizePhone(rawPhone) : null;
-    
-    let normalizedEmail = null;
-    if (email && typeof email === 'string' && email.includes('@')) {
-      normalizedEmail = email.trim().toLowerCase();
-    } else if (normalizedPhone) {
-      normalizedEmail = `${normalizedPhone.replace(/\D/g, '')}@humologistics.uz`;
+    const rawName = (name || first_name || '').toString().trim();
+    if (!rawName) {
+      return res.status(400).json({ success: false, message: 'Ism va familiyangizni kiriting' });
     }
 
-    if (!normalizedPhone && !normalizedEmail) {
-      return res.status(400).json({ error: 'invalid_contact', message: 'Telefon raqam yoki email talab qilinadi' });
+    const rawPhone = (phone || '').toString().trim().replace(/\s+/g, '');
+    const normalizedPhone = normalizePhone(rawPhone);
+    if (!normalizedPhone) {
+      return res.status(400).json({ success: false, message: "Telefon raqamingizni to'g'ri kiriting (+998...)" });
+    }
+
+    const rawEmail = (email || '').toString().trim().toLowerCase();
+    if (!rawEmail || !rawEmail.includes('@')) {
+      return res.status(400).json({ success: false, message: "Email manzilingizni to'liq kiriting (masalan: ism@gmail.com)" });
     }
 
     if (!password || typeof password !== 'string' || password.length < 6) {
-      return res.status(400).json({ error: 'invalid_password', message: 'Parol kamida 6 ta belgidan iborat bo‘lishi kerak' });
+      return res.status(400).json({ success: false, message: 'Parol kamida 6 ta belgidan iborat bo‘lishi kerak' });
     }
 
-    // Check existing user by email or phone
-    let existing = null;
-    if (normalizedPhone && normalizedEmail) {
-      const barePhone = normalizedPhone.replace(/^\+/, '');
-      existing = await db.queryOne(
-        'SELECT id FROM users WHERE email = $1 OR phone = $2 OR phone = $3 LIMIT 1',
-        [normalizedEmail, normalizedPhone, barePhone]
-      );
-    } else if (normalizedPhone) {
-      const barePhone = normalizedPhone.replace(/^\+/, '');
-      existing = await db.queryOne(
-        'SELECT id FROM users WHERE phone = $1 OR phone = $2 LIMIT 1',
-        [normalizedPhone, barePhone]
-      );
-    } else {
-      existing = await db.queryOne('SELECT id FROM users WHERE email = $1 LIMIT 1', [normalizedEmail]);
-    }
+    const barePhone = normalizedPhone.replace(/^\+/, '');
+    // Check if email or phone is already verified in DB
+    const existingVerified = await db.queryOne(
+      'SELECT id, email, phone, is_verified FROM users WHERE (email = $1 OR phone = $2 OR phone = $3) AND is_verified = TRUE LIMIT 1',
+      [rawEmail, normalizedPhone, barePhone]
+    );
 
-    if (existing) {
-      return res.status(409).json({
-        error: 'user_exists',
-        message: 'Ushbu telefon raqam yoki email bilan hisob allaqachon mavjud. Iltimos, "Kirish" bo‘limidan kiring yoki parolni tiklang'
+    if (existingVerified) {
+      return res.status(400).json({
+        success: false,
+        message: "Bu email yoki telefon raqam allaqachon ro'yxatdan o'tgan"
       });
     }
 
-    const targetKey = (email && email.includes('@')) ? normalizedEmail : normalizedPhone;
-
-    // Rate limiting: 60-second cooldown
-    const cooldownRemaining = await checkOtpCooldown(targetKey);
+    // Rate limiting: 60-second cooldown on this email
+    const cooldownRemaining = await checkOtpCooldown(rawEmail);
     if (cooldownRemaining > 0) {
       return res.status(429).json({
+        success: false,
         error: 'rate_limit',
         message: `Iltimos, qayta yuborishdan oldin ${cooldownRemaining} soniya kuting`,
         retry_after: cooldownRemaining
@@ -113,32 +108,52 @@ authRouter.post('/register', async (req, res) => {
 
     // Generate 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    await createOtpRecord(targetKey, code, 'registration');
+
+    // Store pending registration payload in memory Map
+    pendingRegistrations.set(rawEmail, {
+      name: rawName,
+      first_name: rawName,
+      last_name: (last_name || '').toString().trim() || null,
+      phone: normalizedPhone,
+      email: rawEmail,
+      password: password,
+      role: (role && ['carrier', 'shipper', 'dispatcher', 'admin', 'user'].includes(role)) ? role : 'carrier',
+      code,
+      expiresAt: Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000,
+      attempts: 0,
+      createdAt: Date.now()
+    });
+
+    // Also store OTP record in DB
+    await createOtpRecord(rawEmail, code, 'registration');
 
     // Send 6-digit OTP via Brevo
-    if (normalizedEmail) {
-      await sendOtpEmail(normalizedEmail, code, "Ro'yxatdan o'tishni tasdiqlash kodi");
-    } else {
-      console.log(`[Register OTP] Generated OTP for ${normalizedPhone}: [${code}]`);
+    try {
+      await sendOtpEmail(rawEmail, code, "Ro'yxatdan o'tishni tasdiqlash kodi");
+    } catch (sendErr) {
+      console.error('[Register] Email delivery failed:', sendErr);
+      pendingRegistrations.delete(rawEmail);
+      return res.status(500).json({
+        success: false,
+        message: 'Email yuborishda xatolik: ' + (sendErr.message || 'Xatolik yuz berdi')
+      });
     }
 
     // Mandatory OTP Step: ONLY send OTP and return requiresOtp: true — NEVER return a token!
     return res.status(200).json({
       success: true,
       requiresOtp: true,
-      email: normalizedEmail,
-      identifier: targetKey,
+      email: rawEmail,
+      identifier: rawEmail,
       message: '6 xonali tasdiqlash kodi emailingizga yuborildi',
       cooldown: OTP_COOLDOWN_SECONDS,
       expires_in: OTP_EXPIRY_MINUTES * 60
     });
   } catch (err) {
     console.error('Error during registration OTP dispatch:', err);
-    const statusCode = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
-      error: err.brevoCode || err.code || 'server_error',
-      message: err.message || 'Ro‘yxatdan o‘tishda tasdiqlash kodini yuborishda xatolik yuz berdi'
+      message: 'Ro‘yxatdan o‘tishda xatolik yuz berdi: ' + (err.message || '')
     });
   }
 });
@@ -480,7 +495,7 @@ authRouter.post('/resend-otp', async (req, res) => {
     const rawTarget = (email || phone || identifier || '').toString().trim().replace(/\s+/g, '');
 
     if (!rawTarget) {
-      return res.status(400).json({ error: 'missing_target', message: 'Telefon raqam yoki email kiritilishi shart' });
+      return res.status(400).json({ success: false, message: 'Telefon raqam yoki email kiritilishi shart' });
     }
 
     const isEmail = rawTarget.includes('@');
@@ -488,13 +503,14 @@ authRouter.post('/resend-otp', async (req, res) => {
     const targetKey = isEmail ? rawTarget.toLowerCase() : normPhone;
 
     if (!targetKey) {
-      return res.status(400).json({ error: 'invalid_identifier', message: 'Noto‘g‘ri telefon raqam yoki email' });
+      return res.status(400).json({ success: false, message: 'Noto‘g‘ri telefon raqam yoki email' });
     }
 
     // Rate limiting: 60-second cooldown per identifier
     const cooldownRemaining = await checkOtpCooldown(targetKey);
     if (cooldownRemaining > 0) {
       return res.status(429).json({
+        success: false,
         error: 'rate_limit',
         message: `Iltimos, qayta yuborishdan oldin ${cooldownRemaining} soniya kuting`,
         retry_after: cooldownRemaining
@@ -503,8 +519,16 @@ authRouter.post('/resend-otp', async (req, res) => {
 
     // Generate new 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpType = type || 'verification';
+    const otpType = type || 'registration';
     await createOtpRecord(targetKey, code, otpType);
+
+    // Update pending registration in memory if exists
+    if (isEmail && pendingRegistrations.has(targetKey)) {
+      const p = pendingRegistrations.get(targetKey);
+      p.code = code;
+      p.expiresAt = Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000;
+      p.attempts = 0;
+    }
 
     const phoneDigits = normPhone ? normPhone.replace(/\D/g, '') : '';
     const telegramBotUrl = normPhone ? `https://t.me/HumoLogisticsBot?start=verify_${phoneDigits}` : null;
@@ -516,13 +540,21 @@ authRouter.post('/resend-otp', async (req, res) => {
           ? "Parolni tiklash kodi"
           : "Tasdiqlash kodi";
 
-      const emailResult = await sendOtpEmail(targetKey, code, purpose);
+      try {
+        await sendOtpEmail(targetKey, code, purpose);
+      } catch (sendErr) {
+        console.error('[Resend OTP] Email delivery failed:', sendErr);
+        return res.status(500).json({
+          success: false,
+          message: 'Email yuborishda xatolik: ' + (sendErr.message || 'Xatolik yuz berdi')
+        });
+      }
 
       return res.json({
         success: true,
-        message: emailResult.message || 'Yangi tasdiqlash kodi emailingizga yuborildi',
+        message: 'Yangi tasdiqlash kodi emailingizga yuborildi',
         identifier: targetKey,
-        channel: emailResult.mode || 'email',
+        channel: 'email',
         telegram_bot_url: telegramBotUrl,
         cooldown: OTP_COOLDOWN_SECONDS,
         expires_in: OTP_EXPIRY_MINUTES * 60
@@ -542,12 +574,9 @@ authRouter.post('/resend-otp', async (req, res) => {
     }
   } catch (err) {
     console.error('Error in resend-otp:', err);
-    const statusCode = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
-    res.status(statusCode).json({
+    res.status(500).json({
       success: false,
-      error: err.brevoCode || err.code || 'email_delivery_failed',
-      message: err.message || 'Kodni qayta yuborishda server xatosi',
-      details: { code: err.brevoCode || err.code, name: err.name }
+      message: 'Kodni qayta yuborishda server xatosi'
     });
   }
 });
@@ -568,8 +597,9 @@ authRouter.post('/verify-otp', async (req, res) => {
     }
 
     const isEmail = rawTarget.includes('@');
+    const normEmail = isEmail ? rawTarget.toLowerCase() : null;
     const normPhone = !isEmail ? normalizePhone(rawTarget) : null;
-    const targetKey = isEmail ? rawTarget.toLowerCase() : normPhone;
+    const targetKey = normEmail || normPhone;
 
     if (!targetKey) {
       return res.status(400).json({
@@ -579,28 +609,91 @@ authRouter.post('/verify-otp', async (req, res) => {
       });
     }
 
-    const validation = await validateAndConsumeOtp(targetKey, inputOtp);
-    if (!validation.valid) {
-      return res.status(400).json({
-        success: false,
-        error: validation.error || 'invalid_code',
-        message: validation.message || "Noto'g'ri tasdiqlash kodi kiritildi. Qaytadan tekshiring."
-      });
+    // Check in-memory pending registrations first
+    let pending = normEmail ? pendingRegistrations.get(normEmail) : null;
+    if (!pending && normPhone) {
+      for (const p of pendingRegistrations.values()) {
+        if (p.phone === normPhone) {
+          pending = p;
+          break;
+        }
+      }
     }
 
-    // Exact 6-digit code matched strictly!
-    // Find or create/activate user in DB
+    let isValid = false;
+
+    if (pending) {
+      if (Date.now() > pending.expiresAt) {
+        pendingRegistrations.delete(pending.email);
+        return res.status(400).json({
+          success: false,
+          error: 'expired_code',
+          message: "Tasdiqlash kodining muddati o'tgan. Iltimos, yangi kod so'rang"
+        });
+      }
+
+      if (pending.attempts >= MAX_OTP_ATTEMPTS) {
+        pendingRegistrations.delete(pending.email);
+        return res.status(400).json({
+          success: false,
+          error: 'max_attempts_exceeded',
+          message: "Urinishlar soni tugadi (5 ta xato urinish). Yangi kod so‘rang"
+        });
+      }
+
+      if (pending.code === inputOtp) {
+        isValid = true;
+      } else {
+        pending.attempts = (pending.attempts || 0) + 1;
+        const remaining = MAX_OTP_ATTEMPTS - pending.attempts;
+        if (remaining <= 0) {
+          pendingRegistrations.delete(pending.email);
+          return res.status(400).json({
+            success: false,
+            error: 'max_attempts_exceeded',
+            message: "Urinishlar soni tugadi (5 ta xato urinish). Yangi kod so‘rang"
+          });
+        }
+        return res.status(400).json({
+          success: false,
+          error: 'invalid_code',
+          message: `Noto'g'ri tasdiqlash kodi kiritildi. Qaytadan tekshiring. (Qolgan urinishlar: ${remaining})`
+        });
+      }
+    }
+
+    // If not validated via pending in-memory, validate with DB
+    if (!isValid) {
+      const dbValidation = await validateAndConsumeOtp(targetKey, inputOtp);
+      if (dbValidation.valid) {
+        isValid = true;
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: dbValidation.error || 'invalid_code',
+          message: dbValidation.message || "Noto'g'ri yoki muddati o'tgan tasdiqlash kodi"
+        });
+      }
+    }
+
+    // Delete DB otp_codes record if still present
+    await db.query('DELETE FROM otp_codes WHERE identifier = $1', [targetKey]);
+
+    const targetEmail = pending?.email || normEmail || (email && email.includes('@') ? email.trim().toLowerCase() : null);
+    const targetPhone = pending?.phone || normPhone || (phone ? normalizePhone(phone) : null);
+    const targetName = (pending?.name || name || first_name || '').trim();
+    const targetLastName = (pending?.last_name || last_name || '').trim();
+    const targetPassword = pending?.password || password;
+    const targetRole = pending?.role || role || 'carrier';
+
+    // Find existing user in DB
     let user = null;
-    if (isEmail) {
-      user = await db.queryOne('SELECT * FROM users WHERE email = $1 LIMIT 1', [targetKey]);
-    } else {
-      const phoneDigits = normPhone.replace(/\D/g, '');
-      const syntheticEmail = `${phoneDigits}@humologistics.uz`;
-      const barePhone = normPhone.replace(/^\+/, '');
-      user = await db.queryOne(
-        'SELECT * FROM users WHERE phone = $1 OR phone = $2 OR email = $3 LIMIT 1',
-        [normPhone, barePhone, syntheticEmail]
-      );
+    if (targetEmail) {
+      user = await db.queryOne('SELECT * FROM users WHERE email = $1 LIMIT 1', [targetEmail]);
+    }
+    if (!user && targetPhone) {
+      const barePhone = targetPhone.replace(/^\+/, '');
+      user = await db.queryOne('SELECT * FROM users WHERE phone = $1 OR phone = $2 LIMIT 1', [targetPhone, barePhone]);
     }
 
     const now = new Date().toISOString();
@@ -608,13 +701,12 @@ authRouter.post('/verify-otp', async (req, res) => {
     if (!user) {
       // Create user genuinely in DB so they are registered and saved
       const newId = crypto.randomUUID();
-      const userPassword = password || `Humo_${crypto.randomBytes(6).toString('hex')}`;
+      const userPassword = targetPassword || `Humo_${crypto.randomBytes(6).toString('hex')}`;
       const passwordHash = hashPassword(userPassword);
-      const userFirstName = (first_name || name || '').trim() || (isEmail ? targetKey.split('@')[0] : 'Foydalanuvchi');
-      const userLastName = (last_name || '').trim() || null;
-      const userRole = role && ['carrier', 'shipper', 'dispatcher', 'admin', 'user'].includes(role) ? role : 'carrier';
-      const userPhone = phone ? normalizePhone(phone) : normPhone;
-      const userEmail = (email && email.includes('@')) ? email.trim().toLowerCase() : (isEmail ? targetKey : (userPhone ? `${userPhone.replace(/\D/g, '')}@humologistics.uz` : `${newId.slice(0, 8)}@humologistics.uz`));
+      const userFirstName = targetName || (targetEmail ? targetEmail.split('@')[0] : 'Foydalanuvchi');
+      const userLastName = targetLastName || null;
+      const userRole = ['carrier', 'shipper', 'dispatcher', 'admin', 'user'].includes(targetRole) ? targetRole : 'carrier';
+      const finalEmail = targetEmail || (targetPhone ? `${targetPhone.replace(/\D/g, '')}@humologistics.uz` : `${newId.slice(0, 8)}@humologistics.uz`);
 
       await db.query(`
         INSERT INTO users (
@@ -626,15 +718,23 @@ authRouter.post('/verify-otp', async (req, res) => {
           1, TRUE, FALSE, 117,
           NULL, NULL, $8, $9
         )
-      `, [newId, userEmail, passwordHash, userFirstName, userLastName, userPhone, userRole, now, now]);
+      `, [newId, finalEmail, passwordHash, userFirstName, userLastName, targetPhone, userRole, now, now]);
 
       user = await db.queryOne('SELECT * FROM users WHERE id = $1', [newId]);
     } else {
-      // User exists - activate and mark as verified
-      if (!user.is_verified) {
+      // User exists - activate and mark as verified, update password if provided
+      if (targetPassword) {
+        const passwordHash = hashPassword(targetPassword);
+        await db.query('UPDATE users SET is_verified = TRUE, password_hash = $1, updated_at = $2 WHERE id = $3', [passwordHash, now, user.id]);
+      } else {
         await db.query('UPDATE users SET is_verified = TRUE, updated_at = $1 WHERE id = $2', [now, user.id]);
-        user.is_verified = true;
       }
+      user = await db.queryOne('SELECT * FROM users WHERE id = $1', [user.id]);
+    }
+
+    // Clean up memory
+    if (pending) {
+      pendingRegistrations.delete(pending.email);
     }
 
     // Generate real JWT token

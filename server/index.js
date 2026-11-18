@@ -16,6 +16,8 @@ import { supportRouter } from './routes/supportRoutes.js';
 import { aiRouter } from './routes/aiRoutes.js';
 import { channelRouter } from './routes/channelRoutes.js';
 import { cargoDirectoryRouter } from './routes/cargoDirectoryRoutes.js';
+import { userRouter } from './routes/userRoutes.js';
+import { loadRouter } from './routes/loadRoutes.js';
 import { authMiddleware, requireAuth } from './auth.js';
 import { 
   db, 
@@ -142,6 +144,8 @@ app.use('/api', generalApiLimiter);
 
 // API Routes
 app.use('/api/auth', authRouter);
+app.use('/api/users', userRouter);
+app.use('/api/loads', loadRouter);
 app.use('/api/profile', profileRouter);
 app.use('/api/listings', listingRouter);
 app.use('/api/transports', transportRouter);

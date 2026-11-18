@@ -40,6 +40,8 @@ export async function getSessionUser(token) {
 
   const query = `
     SELECT u.id, u.email, u.first_name, u.last_name, u.phone, u.role, 
+           COALESCE(u.active_role, 'driver') as active_role,
+           u.available_roles,
            u.profile_completed, u.is_verified, u.is_banned,
            COALESCE(u.free_contacts_remaining, 117) as free_contacts_remaining,
            u.plan_id, u.plan_expires_at,
@@ -51,6 +53,18 @@ export async function getSessionUser(token) {
   const user = await db.queryOne(query, [token, now]);
   if (user && user.is_banned) {
     return null;
+  }
+  if (user) {
+    user.active_role = user.active_role || 'driver';
+    if (typeof user.available_roles === 'string') {
+      try {
+        user.available_roles = JSON.parse(user.available_roles);
+      } catch (e) {
+        user.available_roles = ['driver', 'shipper', 'dispatcher'];
+      }
+    } else if (!Array.isArray(user.available_roles)) {
+      user.available_roles = ['driver', 'shipper', 'dispatcher'];
+    }
   }
   return user || null;
 }
